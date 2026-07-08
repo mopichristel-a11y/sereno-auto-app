@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SERENO AUTO — Management System</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="logo-zone">
+    <div class="logo-badge">
+      <div class="logo-icon">🛡️</div>
+      <div class="logo-text">
+        SERENO AUTO
+        <span>Management System</span>
+      </div>
+    </div>
+  </div>
+
+  <nav class="nav">
+    <div class="nav-label">Principal</div>
+    <div class="nav-item active" data-panel="dashboard"><span class="icon">📊</span><span>Tableau de bord</span></div>
+    <div class="nav-item" data-panel="clients"><span class="icon">👥</span><span>Clients</span><span class="nav-badge" id="badge-clients"></span></div>
+    <div class="nav-item" data-panel="vehicules"><span class="icon">🚗</span><span>Véhicules</span><span class="nav-badge" id="badge-vehicules"></span></div>
+    <div class="nav-item" data-panel="contrats"><span class="icon">📋</span><span>Contrats CSA</span></div>
+    <div class="nav-item" data-panel="carnet"><span class="icon">🔧</span><span>Carnet entretien</span></div>
+    <div class="nav-item" data-panel="diagnostic"><span class="icon">🔍</span><span>Diagnostics</span></div>
+    <div class="nav-item" data-panel="interventions"><span class="icon">🛠️</span><span>Interventions</span></div>
+
+    <div class="nav-label">Gestion</div>
+    <div class="nav-item" data-panel="notifications"><span class="icon">🔔</span><span>Notifications</span><span class="nav-badge" id="badge-notifs"></span></div>
+    <div class="nav-item" data-panel="finances"><span class="icon">💰</span><span>Finances</span></div>
+    <div class="nav-item" data-panel="stats"><span class="icon">📈</span><span>Statistiques</span></div>
+  </nav>
+
+  <div class="sidebar-footer">
+    <div class="user-card">
+      <div class="avatar" id="user-avatar">–</div>
+      <div class="user-info">
+        <div class="user-name" id="user-nom">…</div>
+        <div class="user-role" id="user-role">…</div>
+      </div>
+      <button class="btn-logout" id="btn-logout" title="Déconnexion">⏻</button>
+    </div>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<main class="main">
+  <div class="topbar">
+    <div>
+      <div class="page-title" id="page-title">Tableau de bord</div>
+      <div class="page-sub" id="page-sub">Chargement…</div>
+    </div>
+    <div class="topbar-right">
+      <div class="notif-btn" id="btn-cloche">🔔<div class="notif-dot" id="notif-dot"></div></div>
+      <button class="btn-primary" id="top-btn">＋ Nouveau client</button>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- DASHBOARD -->
+    <div id="panel-dashboard" class="panel active">
+      <div class="kpi-grid" id="dash-kpi-1"></div>
+      <div class="kpi-grid" id="dash-kpi-2"></div>
+      <div class="three-col">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">📅 Rendez-vous du jour</div>
+            <span class="badge badge-blue" id="dash-rdv-badge">—</span>
+          </div>
+          <div class="card-body" id="dash-rdv"></div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">🚨 Alertes importantes</div>
+            <span class="badge badge-red" id="dash-alertes-badge">—</span>
+          </div>
+          <div class="card-body" id="dash-alertes"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">🛠️ Interventions en cours</div>
+          <button class="btn-primary btn-mini" data-action="nouvelle-intervention">+ Nouvelle intervention</button>
+        </div>
+        <div class="table-scroll" id="dash-interventions"></div>
+      </div>
+    </div>
+
+    <!-- CLIENTS -->
+    <div id="panel-clients" class="panel">
+      <div class="search-bar">
+        <span>🔍</span>
+        <input type="text" id="recherche-clients" placeholder="Rechercher un client par nom, téléphone, véhicule…">
+        <span class="badge badge-gray" id="clients-count">—</span>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">👥 Liste des clients</div>
+          <button class="btn-primary btn-mini" data-action="nouveau-client">+ Nouveau client</button>
+        </div>
+        <div class="table-scroll" id="table-clients"></div>
+        <div class="pagination" id="pagination-clients"></div>
+      </div>
+    </div>
+
+    <!-- VEHICULES -->
+    <div id="panel-vehicules" class="panel">
+      <div class="search-bar">
+        <span>🔍</span>
+        <input type="text" id="recherche-vehicules" placeholder="Marque, modèle, immatriculation, VIN, client…">
+        <span class="badge badge-gray" id="vehicules-count">—</span>
+      </div>
+      <div class="two-col" style="grid-template-columns: 1fr 1fr;">
+        <div id="liste-vehicules"></div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">📋 Fiche véhicule</div></div>
+          <div class="card-body" id="fiche-vehicule">
+            <div class="chargement">Sélectionnez un véhicule dans la liste.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CONTRATS -->
+    <div id="panel-contrats" class="panel">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">📋 Contrats CSA — Vue d'ensemble</div>
+          <button class="btn-primary btn-mini" data-action="nouveau-contrat">+ Nouveau contrat</button>
+        </div>
+        <div class="table-scroll" id="table-contrats"></div>
+      </div>
+      <div class="two-col" style="margin-top:16px;">
+        <div class="card">
+          <div class="card-header"><div class="card-title">📊 Répartition par formule</div></div>
+          <div class="card-body" id="contrats-repartition"></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">💰 Mensualités attendues</div></div>
+          <div class="card-body" id="contrats-mensualites"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CARNET -->
+    <div id="panel-carnet" class="panel">
+      <div class="search-bar">
+        <span>🚗</span>
+        <select class="form-select" id="carnet-vehicule" style="border:none; flex:1;">
+          <option value="">Choisir un véhicule…</option>
+        </select>
+        <button class="btn-primary btn-mini" data-action="nouvel-entretien">+ Ajouter entretien</button>
+      </div>
+      <div class="three-col">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">🔧 Carnet d'entretien</div>
+            <span class="badge badge-orange" id="carnet-titre">—</span>
+          </div>
+          <div class="card-body" id="carnet-liste">
+            <div class="chargement">Choisissez un véhicule pour afficher son carnet.</div>
+          </div>
+        </div>
+        <div>
+          <div class="card">
+            <div class="card-header"><div class="card-title">🔔 Prochains rappels (tous véhicules)</div></div>
+            <div class="card-body" id="carnet-rappels"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DIAGNOSTICS -->
+    <div id="panel-diagnostic" class="panel">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">🔍 Diagnostics enregistrés</div>
+          <button class="btn-primary btn-mini" data-action="nouveau-diagnostic">+ Nouveau diagnostic</button>
+        </div>
+        <div class="table-scroll" id="table-diagnostics"></div>
+      </div>
+      <div class="card" style="margin-top:16px;">
+        <div class="card-header"><div class="card-title">🧾 Devis</div></div>
+        <div class="table-scroll" id="table-devis"></div>
+      </div>
+    </div>
+
+    <!-- INTERVENTIONS -->
+    <div id="panel-interventions" class="panel">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">🛠️ Interventions</div>
+          <button class="btn-primary btn-mini" data-action="nouvelle-intervention">+ Planifier</button>
+        </div>
+        <div class="table-scroll" id="table-interventions"></div>
+      </div>
+    </div>
+
+    <!-- NOTIFICATIONS -->
+    <div id="panel-notifications" class="panel">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">🔔 Notifications & Rappels automatiques</div>
+          <div style="display:flex; gap:8px;">
+            <span class="badge badge-red" id="notifs-badge">—</span>
+            <button class="btn-secondary btn-mini" data-action="tout-lu">Tout marquer lu</button>
+          </div>
+        </div>
+        <div id="liste-notifications"></div>
+      </div>
+    </div>
+
+    <!-- FINANCES -->
+    <div id="panel-finances" class="panel">
+      <div class="kpi-grid" id="fin-kpi"></div>
+      <div class="two-col">
+        <div class="card">
+          <div class="card-header"><div class="card-title">📊 CA par mois (F CFA)</div></div>
+          <div class="card-body"><div class="chart-bars" id="fin-chart"></div></div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">💳 Derniers paiements</div>
+            <button class="btn-primary btn-mini" data-action="nouveau-paiement">+ Paiement</button>
+          </div>
+          <div class="card-body" id="fin-paiements"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- STATS -->
+    <div id="panel-stats" class="panel">
+      <div class="two-col">
+        <div class="card">
+          <div class="card-header"><div class="card-title">📈 Performance globale</div></div>
+          <div class="card-body" id="stats-perf"></div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">🏆 Top commerciaux</div>
+            <button class="btn-secondary btn-mini" data-action="rapport-pdf">📄 Rapport PDF</button>
+          </div>
+          <div class="card-body" id="stats-commerciaux"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">🌍 Vision SaaS — Déploiement Afrique</div></div>
+        <div class="card-body">
+          <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:16px; text-align:center;">
+            <div style="padding:16px; background:var(--sereno-pale); border-radius:10px;">
+              <div style="font-size:24px; margin-bottom:6px;">🇨🇲</div>
+              <div style="font-weight:700; color:var(--marine);">Cameroun</div>
+              <div style="font-size:12px; color:var(--sereno); font-weight:600;">Phase 1 — ACTIF</div>
+              <div style="font-size:11px; color:var(--sous-texte); margin-top:4px;">Yaoundé · Douala</div>
+            </div>
+            <div style="padding:16px; background:var(--or-pale); border-radius:10px;">
+              <div style="font-size:24px; margin-bottom:6px;">🇨🇮</div>
+              <div style="font-weight:700; color:var(--marine);">Côte d'Ivoire</div>
+              <div style="font-size:12px; color:var(--or); font-weight:600;">Phase 2 — 2027</div>
+              <div style="font-size:11px; color:var(--sous-texte); margin-top:4px;">Abidjan</div>
+            </div>
+            <div style="padding:16px; background:var(--or-pale); border-radius:10px;">
+              <div style="font-size:24px; margin-bottom:6px;">🇸🇳</div>
+              <div style="font-weight:700; color:var(--marine);">Sénégal</div>
+              <div style="font-size:12px; color:var(--or); font-weight:600;">Phase 2 — 2027</div>
+              <div style="font-size:11px; color:var(--sous-texte); margin-top:4px;">Dakar</div>
+            </div>
+            <div style="padding:16px; background:var(--gris); border-radius:10px; border:1px dashed var(--gris-bord);">
+              <div style="font-size:24px; margin-bottom:6px;">🌍</div>
+              <div style="font-weight:700; color:var(--marine);">Afrique de l'Ouest</div>
+              <div style="font-size:12px; color:var(--sous-texte); font-weight:600;">Phase 3 — 2028+</div>
+              <div style="font-size:11px; color:var(--sous-texte); margin-top:4px;">SaaS multi-pays</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<!-- MODAL générique -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-titre">—</div>
+      <button class="modal-close" id="modal-fermer">✕</button>
+    </div>
+    <div class="modal-body" id="modal-corps"></div>
+    <div class="modal-footer">
+      <button class="btn-secondary" id="modal-annuler">Annuler</button>
+      <button class="btn-primary" id="modal-valider">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-zone" id="toast-zone"></div>
+
+<script src="js/api.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

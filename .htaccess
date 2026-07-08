@@ -1,0 +1,16 @@
+# ============================================================
+#  SERENO SMS — Protection racine (Hostinger / Apache)
+# ============================================================
+Options -Indexes
+
+# Bloquer l'accès direct aux dossiers sensibles
+RewriteEngine On
+RewriteRule ^(config|middleware|services|lib|database)(/|$) - [F,L]
+
+# /api/* → routeur API
+RewriteCond %{REQUEST_URI} ^/api
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^api/(.*)$ api/index.php [QSA,L]
+
+# Accueil → interface
+RewriteRule ^$ public/login.html [R=302,L]

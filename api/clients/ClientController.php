@@ -1,0 +1,199 @@
+<?php
+// ============================================================
+//  SERENO SMS — ClientController (Module 2)
+//  CRUD clients + recherche + fiche détaillée
+// ============================================================
+
+require_once __DIR__ . '/../BaseController.php';
+
+class ClientController extends BaseController {
+
+    // ----------------------------------------------------------
+    // GET /clients?recherche=&type=&page=&limite=
+    // ----------------------------------------------------------
+    public static function index(): void {
+        AuthMiddleware::equipeInterne();
+        $db = Database::connect();
+
+        [$page, $limite, $offset] = self::pagination();
+
+        $where  = [];
+        $params = [];
+
+        if (!empty($_GET['recherche'])) {
+            $where[]  = '(c.nom LIKE :q OR c.telephone LIKE :q OR c.email LIKE :q
+                          OR EXISTS (SELECT 1 FROM vehicules v WHERE v.client_id = c.id
+                                     AND (v.marque LIKE :q OR v.modele LIKE :q OR v.immatriculation LIKE :q OR v.vin LIKE :q)))';
+            $params[':q'] = '%' . trim($_GET['recherche']) . '%';
+        }
+        if (!empty($_GET['type'])) {
+            $where[] = 'c.type_client = :type';
+            $params[':type'] = $_GET['type'];
+        }
+
+        $sqlWhere = $where ? 'WHERE ' . implode(' AND ', $where) : '';
+
+        $total = $db->prepare("SELECT COUNT(*) FROM clients c $sqlWhere");
+        $total->execute($params);
+        $nbTotal = (int)$total->fetchColumn();
+
+        $stmt = $db->prepare(
+            "SELECT c.*,
+                    (SELECT COUNT(*) FROM vehicules v WHERE v.client_id = c.id) AS nb_vehicules,
+                    (SELECT GROUP_CONCAT(CONCAT(v.marque, ' ', v.modele) SEPARATOR ', ')
+                     FROM vehicules v WHERE v.client_id = c.id) AS vehicules_resume,
+                    (SELECT f.nom FROM contrats_csa ct
+                     JOIN formules_csa f ON f.id = ct.formule_id
+                     WHERE ct.client_id = c.id AND ct.statut = 'actif'
+                     ORDER BY ct.date_expiration DESC LIMIT 1) AS formule_active,
+                    (SELECT MIN(ct.date_expiration) FROM contrats_csa ct
+                     WHERE ct.client_id = c.id AND ct.statut = 'actif') AS prochaine_expiration
+             FROM clients c
+             $sqlWhere
+             ORDER BY c.created_at DESC
+             LIMIT $limite OFFSET $offset"
+        );
+        $stmt->execute($params);
+
+        self::succes([
+            'clients' => $stmt->fetchAll(),
+            'total'   => $nbTotal,
+            'page'    => $page,
+            'pages'   => (int)ceil($nbTotal / $limite),
+        ]);
+    }
+
+    // ----------------------------------------------------------
+    // GET /clients/{id} — fiche complète
+    // ----------------------------------------------------------
+    public static function show(int $id): void {
+        AuthMiddleware::equipeInterne();
+        $db = Database::connect();
+
+        $client = self::trouverOu404($db, 'clients', $id, 'Client');
+
+        $vehicules = $db->prepare('SELECT * FROM vehicules WHERE client_id = ? ORDER BY created_at DESC');
+        $vehicules->execute([$id]);
+
+        $contrats = $db->prepare(
+            "SELECT ct.*, f.nom AS formule, v.marque, v.modele, v.immatriculation
+             FROM contrats_csa ct
+             JOIN formules_csa f ON f.id = ct.formule_id
+             JOIN vehicules v    ON v.id = ct.vehicule_id
+             WHERE ct.client_id = ?
+             ORDER BY ct.created_at DESC"
+        );
+        $contrats->execute([$id]);
+
+        $rdv = $db->prepare(
+            "SELECT r.*, v.marque, v.modele FROM rendez_vous r
+             JOIN vehicules v ON v.id = r.vehicule_id
+             WHERE r.client_id = ? AND r.date_rdv >= NOW() AND r.statut != 'annulé'
+             ORDER BY r.date_rdv ASC LIMIT 5"
+        );
+        $rdv->execute([$id]);
+
+        self::succes([
+            'client'    => $client,
+            'vehicules' => $vehicules->fetchAll(),
+            'contrats'  => $contrats->fetchAll(),
+            'rdv'       => $rdv->fetchAll(),
+        ]);
+    }
+
+    // ----------------------------------------------------------
+    // POST /clients
+    // ----------------------------------------------------------
+    public static function store(): void {
+        $user = AuthMiddleware::adminOuCommercial();
+        $data = self::bodyJson();
+
+        self::requis($data, ['nom', 'telephone']);
+
+        if (!empty($data['email']) && !filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {
+            self::erreur(400, 'Adresse email invalide.');
+        }
+        $type = $data['type_client'] ?? 'particulier';
+        if (!in_array($type, ['particulier', 'entreprise'])) {
+            self::erreur(400, 'type_client invalide (particulier ou entreprise).');
+        }
+
+        $db = Database::connect();
+
+        // Anti-doublon simple sur le téléphone
+        $test = $db->prepare('SELECT id, nom FROM clients WHERE telephone = ?');
+        $test->execute([trim($data['telephone'])]);
+        if ($doublon = $test->fetch()) {
+            self::erreur(409, "Un client existe déjà avec ce téléphone : {$doublon['nom']} (id {$doublon['id']}).");
+        }
+
+        $stmt = $db->prepare(
+            'INSERT INTO clients (nom, telephone, email, adresse, piece_identite, num_piece, profession, type_client, created_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            trim($data['nom']),
+            trim($data['telephone']),
+            $data['email'] ?? null,
+            $data['adresse'] ?? null,
+            $data['piece_identite'] ?? null,
+            $data['num_piece'] ?? null,
+            $data['profession'] ?? null,
+            $type,
+            $user['id'],
+        ]);
+
+        self::succes(['id' => (int)$db->lastInsertId()], 'Client créé avec succès.', 201);
+    }
+
+    // ----------------------------------------------------------
+    // PUT /clients/{id}
+    // ----------------------------------------------------------
+    public static function update(int $id): void {
+        AuthMiddleware::adminOuCommercial();
+        $data = self::bodyJson();
+        $db   = Database::connect();
+
+        self::trouverOu404($db, 'clients', $id, 'Client');
+
+        $champs  = ['nom', 'telephone', 'email', 'adresse', 'piece_identite', 'num_piece', 'profession', 'type_client'];
+        $set     = [];
+        $params  = [];
+        foreach ($champs as $c) {
+            if (array_key_exists($c, $data)) {
+                $set[]    = "`$c` = ?";
+                $params[] = $data[$c];
+            }
+        }
+        if (!$set) self::erreur(400, 'Aucun champ à mettre à jour.');
+
+        if (isset($data['email']) && $data['email'] && !filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {
+            self::erreur(400, 'Adresse email invalide.');
+        }
+
+        $params[] = $id;
+        $db->prepare('UPDATE clients SET ' . implode(', ', $set) . ' WHERE id = ?')->execute($params);
+
+        self::succes([], 'Client mis à jour.');
+    }
+
+    // ----------------------------------------------------------
+    // DELETE /clients/{id}  (admin)
+    // ----------------------------------------------------------
+    public static function destroy(int $id): void {
+        AuthMiddleware::adminSeulement();
+        $db = Database::connect();
+
+        self::trouverOu404($db, 'clients', $id, 'Client');
+
+        // Bloquer si contrats actifs
+        $actifs = $db->prepare("SELECT COUNT(*) FROM contrats_csa WHERE client_id = ? AND statut = 'actif'");
+        $actifs->execute([$id]);
+        if ($actifs->fetchColumn() > 0) {
+            self::erreur(409, 'Impossible de supprimer : ce client a des contrats CSA actifs. Résiliez-les d\'abord.');
+        }
+
+        $db->prepare('DELETE FROM clients WHERE id = ?')->execute([$id]);
+        self::succes([], 'Client supprimé.');
+    }
+}
