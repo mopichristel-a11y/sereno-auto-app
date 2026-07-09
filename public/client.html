@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mon espace — SERENO AUTO</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+  /* Ajustements spécifiques à l'espace client (mobile-first) */
+  .client-topnav {
+    background: var(--marine);
+    padding: 0 16px;
+    display: flex; align-items: center; gap: 6px;
+    position: sticky; top: 0; z-index: 100;
+    overflow-x: auto;
+  }
+  .client-logo { display: flex; align-items: center; gap: 8px; padding: 12px 8px 12px 0; margin-right: 8px; }
+  .client-tab {
+    color: rgba(255,255,255,0.6);
+    padding: 14px 12px; font-size: 13px; font-weight: 600;
+    cursor: pointer; border-bottom: 3px solid transparent; white-space: nowrap;
+  }
+  .client-tab.active { color: #fff; border-bottom-color: var(--sereno-light); }
+  .client-tab:hover { color: #fff; }
+  .client-main { max-width: 860px; margin: 0 auto; padding: 20px 16px 60px; width: 100%; }
+  body.client-body { display: block; background: var(--gris); }
+</style>
+</head>
+<body class="client-body">
+
+<nav class="client-topnav">
+  <div class="client-logo">
+    <div class="logo-icon" style="width:30px; height:30px; font-size:15px;">🛡️</div>
+    <span style="font-family:'Space Grotesk',sans-serif; font-weight:700; color:#fff; font-size:14px;">SERENO</span>
+  </div>
+  <div class="client-tab active" data-tab="accueil">Accueil</div>
+  <div class="client-tab" data-tab="vehicules">Mes véhicules</div>
+  <div class="client-tab" data-tab="contrats">Mes contrats</div>
+  <div class="client-tab" data-tab="devis">Devis <span class="nav-badge" id="badge-devis" style="display:none;"></span></div>
+  <div class="client-tab" data-tab="notifications">🔔 <span class="nav-badge" id="badge-notifs" style="display:none;"></span></div>
+  <div style="margin-left:auto;"></div>
+  <div class="client-tab" id="btn-logout" title="Déconnexion">⏻</div>
+</nav>
+
+<main class="client-main">
+  <div id="tab-accueil" class="panel active"></div>
+  <div id="tab-vehicules" class="panel"></div>
+  <div id="tab-contrats" class="panel"></div>
+  <div id="tab-devis" class="panel"></div>
+  <div id="tab-notifications" class="panel"></div>
+</main>
+
+<!-- MODAL générique -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-titre">—</div>
+      <button class="modal-close" id="modal-fermer">✕</button>
+    </div>
+    <div class="modal-body" id="modal-corps"></div>
+    <div class="modal-footer">
+      <button class="btn-secondary" id="modal-annuler">Annuler</button>
+      <button class="btn-primary" id="modal-valider">Valider</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-zone" id="toast-zone"></div>
+
+<script src="js/api.js"></script>
+<script src="js/client.js"></script>
+</body>
+</html>

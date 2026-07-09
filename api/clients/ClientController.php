@@ -178,6 +178,75 @@ class ClientController extends BaseController {
     }
 
     // ----------------------------------------------------------
+    // POST /clients/{id}/creer-acces
+    // Crée un compte utilisateur (rôle client) lié à la fiche.
+    // Body: { mot_de_passe? } — généré si absent.
+    // ----------------------------------------------------------
+    public static function creerAcces(int $id): void {
+        AuthMiddleware::adminOuCommercial();
+        $data = self::bodyJson();
+        $db   = Database::connect();
+
+        $client = self::trouverOu404($db, 'clients', $id, 'Client');
+
+        if ($client['utilisateur_id']) {
+            self::erreur(409, 'Ce client possède déjà un accès à l\'espace client.');
+        }
+        if (empty($client['email'])) {
+            self::erreur(400, 'Ajoutez d\'abord une adresse email à la fiche client.');
+        }
+
+        $test = $db->prepare('SELECT id FROM utilisateurs WHERE email = ?');
+        $test->execute([strtolower($client['email'])]);
+        if ($test->fetch()) {
+            self::erreur(409, 'Un compte existe déjà avec cet email.');
+        }
+
+        $motDePasse = $data['mot_de_passe'] ?? null;
+        if ($motDePasse !== null && strlen($motDePasse) < 8) {
+            self::erreur(400, 'Mot de passe : 8 caractères minimum.');
+        }
+        // Mot de passe temporaire lisible si non fourni (à changer à la 1re connexion)
+        $genere = $motDePasse === null;
+        if ($genere) {
+            $motDePasse = 'Sereno@' . random_int(100000, 999999);
+        }
+
+        // Découper le nom : dernier mot = prénom présumé, le reste = nom
+        $mots   = preg_split('/\s+/', trim($client['nom']));
+        $prenom = count($mots) > 1 ? array_pop($mots) : $client['nom'];
+        $nom    = implode(' ', $mots) ?: $client['nom'];
+
+        $db->beginTransaction();
+        try {
+            $db->prepare(
+                'INSERT INTO utilisateurs (nom, prenom, email, mot_de_passe, telephone, role)
+                 VALUES (?, ?, ?, ?, ?, "client")'
+            )->execute([
+                $nom, $prenom,
+                strtolower(trim($client['email'])),
+                password_hash($motDePasse, PASSWORD_BCRYPT, ['cost' => 12]),
+                $client['telephone'],
+            ]);
+            $utilisateurId = (int)$db->lastInsertId();
+
+            $db->prepare('UPDATE clients SET utilisateur_id = ? WHERE id = ?')
+               ->execute([$utilisateurId, $id]);
+            $db->commit();
+        } catch (Throwable $e) {
+            $db->rollBack();
+            self::erreur(500, 'Création du compte impossible : ' . $e->getMessage());
+        }
+
+        self::succes([
+            'utilisateur_id'          => $utilisateurId,
+            'email'                   => strtolower($client['email']),
+            // Retourné une seule fois pour transmission au client
+            'mot_de_passe_temporaire' => $genere ? $motDePasse : null,
+        ], 'Accès espace client créé. Transmettez les identifiants au client.', 201);
+    }
+
+    // ----------------------------------------------------------
     // DELETE /clients/{id}  (admin)
     // ----------------------------------------------------------
     public static function destroy(int $id): void {

@@ -122,6 +122,32 @@ $routes = [
     ['POST',   '#^/notifications/(\d+)/lu$#',    'notifications/NotificationController.php', ['NotificationController', 'marquerLu']],
     ['POST',   '#^/notifications/(\d+)/envoyer$#', 'notifications/NotificationController.php', ['NotificationController', 'envoyer']],
 
+    // ---------------- ESPACE CLIENT (/moi/*) ----------------
+    ['GET',  '#^/moi/tableau-bord$#',            'moi/ClientPortailController.php', ['ClientPortailController', 'tableauBord']],
+    ['GET',  '#^/moi/vehicules$#',               'moi/ClientPortailController.php', ['ClientPortailController', 'vehicules']],
+    ['GET',  '#^/moi/contrats$#',                'moi/ClientPortailController.php', ['ClientPortailController', 'contrats']],
+    ['GET',  '#^/moi/devis$#',                   'moi/ClientPortailController.php', ['ClientPortailController', 'devis']],
+    ['POST', '#^/moi/devis/(\d+)/reponse$#',     'moi/ClientPortailController.php', ['ClientPortailController', 'repondreDevis']],
+    ['GET',  '#^/moi/notifications$#',           'moi/ClientPortailController.php', ['ClientPortailController', 'notifications']],
+    ['POST', '#^/moi/notifications/(\d+)/lu$#',  'moi/ClientPortailController.php', ['ClientPortailController', 'marquerLu']],
+    ['GET',  '#^/moi/rdv$#',                     'moi/ClientPortailController.php', ['ClientPortailController', 'rdv']],
+    ['POST', '#^/moi/rdv$#',                     'moi/ClientPortailController.php', ['ClientPortailController', 'demanderRdv']],
+
+    // ---------------- ACCÈS CLIENT ----------------
+    ['POST', '#^/clients/(\d+)/creer-acces$#',   'clients/ClientController.php',   ['ClientController', 'creerAcces']],
+
+    // ---------------- PAIEMENTS MOBILE MONEY ----------------
+    ['POST', '#^/paiements/mobile/initier$#',          'paiements/MobileMoneyController.php', ['MobileMoneyController', 'initier']],
+    ['GET',  '#^/paiements/mobile/statut/(\d+)$#',     'paiements/MobileMoneyController.php', ['MobileMoneyController', 'statut']],
+    ['POST', '#^/paiements/mobile/callback/orange$#',  'paiements/MobileMoneyController.php', ['MobileMoneyController', 'callbackOrange']],
+    ['POST', '#^/paiements/mobile/callback/mtn$#',     'paiements/MobileMoneyController.php', ['MobileMoneyController', 'callbackMtn']],
+
+    // ---------------- GARAGES PARTENAIRES ----------------
+    ['GET',    '#^/garages$#',                   'garages/GarageController.php',   ['GarageController', 'index']],
+    ['POST',   '#^/garages$#',                   'garages/GarageController.php',   ['GarageController', 'store']],
+    ['PUT',    '#^/garages/(\d+)$#',             'garages/GarageController.php',   ['GarageController', 'update']],
+    ['DELETE', '#^/garages/(\d+)$#',             'garages/GarageController.php',   ['GarageController', 'destroy']],
+
     // ---------------- STATS & RAPPORTS (Module 7) ----------------
     ['GET',    '#^/stats/dashboard$#',           'stats/StatsController.php',      ['StatsController', 'dashboard']],
     ['GET',    '#^/stats/ca-mensuel$#',          'stats/StatsController.php',      ['StatsController', 'caMensuel']],

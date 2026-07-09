@@ -16,6 +16,9 @@ basée à Yaoundé, Cameroun. Conçue pour l'hébergement mutualisé **Hostinger
 | 6 | **Notifications** — file d'attente, WhatsApp (CallMeBot), SMS (passerelle HTTP), Email, cron Hostinger | `api/notifications/`, `services/NotificationService.php`, `cron/rappels.php` |
 | 7 | **Rapports & Stats** — KPIs, CA mensuel, performance commerciaux, export PDF (générateur intégré sans dépendance) | `api/stats/`, `lib/PdfMinimal.php` |
 | 8 | **Frontend** — dashboard HTML/CSS/JS vanilla : login, KPIs, clients, véhicules, contrats, carnet, diagnostics, interventions, notifications, finances, statistiques | `public/` |
+| 9 | **Espace client** — portail dédié (rôle client) : véhicules, contrats, devis à accepter/refuser, demandes de RDV, notifications, paiement en ligne | `api/moi/`, `public/client.html` |
+| 10 | **Paiements en ligne** — Orange Money Web Payment (redirection) et MTN MoMo Collections (validation sur téléphone), callbacks avec re-vérification serveur | `services/MobileMoneyService.php`, `api/paiements/MobileMoneyController.php` |
+| 11 | **Garages partenaires** — CRUD du réseau (base du SaaS multi-garages) | `api/garages/` |
 
 ## 🚀 Déploiement sur Hostinger
 
@@ -42,7 +45,20 @@ WHATSAPP_API_KEY=cle_callmebot        # optionnel
 SMS_API_URL=https://...               # optionnel
 MAIL_FROM=contact@votre-domaine.com
 SERENO_TELEPHONE=+237 6XX XXX XXX
+
+# Orange Money Web Payment (developer.orange.com)
+OM_CONSUMER_KEY=base64(client_id:client_secret)
+OM_MERCHANT_KEY=votre_merchant_key
+
+# MTN MoMo Collections (momodeveloper.mtn.com)
+MOMO_SUBSCRIPTION_KEY=...
+MOMO_API_USER=uuid_api_user
+MOMO_API_KEY=api_key
+MOMO_ENVIRONMENT=sandbox              # ou mtncameroon en production
+MOMO_BASE_URL=https://sandbox.momodeveloper.mtn.com
 ```
+Sans ces clés, les paiements mobiles en ligne renvoient une erreur explicite ;
+l'enregistrement manuel des paiements reste disponible.
 
 ### 4. Compte administrateur
 Exécuter une fois puis **supprimer** le fichier :
@@ -100,12 +116,28 @@ POST            /api/notifications/{id}/lu · /tout-lu · /{id}/envoyer
 
 GET  /api/stats/dashboard · /ca-mensuel · /commerciaux · /rapport-pdf
 GET  /api/sante
+
+# Espace client (rôle client)
+GET  /api/moi/tableau-bord · /vehicules · /contrats · /devis · /notifications · /rdv
+POST /api/moi/devis/{id}/reponse {reponse: accepter|refuser}
+POST /api/moi/rdv · /api/moi/notifications/{id}/lu
+POST /api/clients/{id}/creer-acces        (équipe : crée le compte client lié)
+
+# Paiement mobile en ligne
+POST /api/paiements/mobile/initier {contrat_id, montant, operateur: orange|mtn, telephone?}
+GET  /api/paiements/mobile/statut/{paiement_id}
+POST /api/paiements/mobile/callback/orange · /callback/mtn   (webhooks opérateurs)
+
+# Garages partenaires
+GET|POST /api/garages    PUT|DELETE /api/garages/{id}
 ```
 
 ## 🎨 Frontend
 
-- `public/login.html` — connexion (JWT, refresh automatique)
-- `public/index.html` — dashboard 10 panneaux
+- `public/login.html` — connexion (JWT, refresh automatique, routage par rôle)
+- `public/index.html` — dashboard équipe, 11 panneaux
+- `public/client.html` — espace client (accueil, véhicules, contrats + paiement mobile, devis, notifications)
+- `public/paiement-retour.html` — page de retour Orange Money
 - `public/js/api.js` — couche API (tokens, refresh, téléchargements PDF)
 - `public/js/app.js` — rendu, modals CRUD, actions
 - Design : marine `#0D1B2A` · vert Sereno `#1A6B3C` · orange `#E07B39` · Space Grotesk + Inter

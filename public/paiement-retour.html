@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Paiement — SERENO AUTO</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="login-page">
+  <div class="login-box" style="text-align:center;">
+    <div style="font-size:52px; margin-bottom:14px;" id="icone">⏳</div>
+    <div class="login-title" id="titre" style="margin-bottom:10px;">Vérification du paiement…</div>
+    <p style="font-size:13px; color:var(--sous-texte); line-height:1.6;" id="message">
+      Merci de patienter pendant la confirmation de votre transaction.
+    </p>
+    <a href="client.html" class="btn-primary" style="display:inline-flex; margin-top:20px; text-decoration:none;">
+      Retour à mon espace
+    </a>
+    <div class="login-footer">SERENO AUTO · Yaoundé, Cameroun</div>
+  </div>
+</div>
+
+<script>
+const params = new URLSearchParams(window.location.search);
+const statut = params.get('statut');
+const icone  = document.getElementById('icone');
+const titre  = document.getElementById('titre');
+const msg    = document.getElementById('message');
+
+if (statut === 'ok') {
+  icone.textContent = '✅';
+  titre.textContent = 'Paiement transmis !';
+  msg.innerHTML = 'Votre paiement est en cours de confirmation par l\'opérateur.<br>' +
+    'Il apparaîtra dans votre espace dès validation (référence : <b>' +
+    (params.get('ref') || '—') + '</b>).';
+} else if (statut === 'annule') {
+  icone.textContent = '↩️';
+  titre.textContent = 'Paiement annulé';
+  msg.textContent = 'Vous avez annulé la transaction. Aucun montant n\'a été débité.';
+} else {
+  icone.textContent = 'ℹ️';
+  titre.textContent = 'Statut du paiement';
+  msg.textContent = 'Consultez votre espace client pour vérifier l\'état de la transaction.';
+}
+</script>
+</body>
+</html>

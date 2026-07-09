@@ -41,9 +41,10 @@
 
 <script src="js/api.js"></script>
 <script>
-// Déjà connecté ? → dashboard
+// Déjà connecté ? → espace selon le rôle
 if (API.tokenValide()) {
-  window.location.href = 'index.html';
+  window.location.href = (API.utilisateur && API.utilisateur.role === 'client')
+    ? 'client.html' : 'index.html';
 }
 
 document.getElementById('form-login').addEventListener('submit', async (e) => {
@@ -59,11 +60,8 @@ document.getElementById('form-login').addEventListener('submit', async (e) => {
       document.getElementById('email').value.trim(),
       document.getElementById('mot_de_passe').value
     );
-    if (data.utilisateur.role === 'client') {
-      API.logout(false);
-      throw new Error('Espace réservé à l\'équipe SERENO. Contactez votre conseiller.');
-    }
-    window.location.href = 'index.html';
+    // Routage par rôle : l'équipe va au dashboard, le client à son espace
+    window.location.href = data.utilisateur.role === 'client' ? 'client.html' : 'index.html';
   } catch (err) {
     erreur.textContent = err.message || 'Connexion impossible.';
     erreur.classList.add('visible');

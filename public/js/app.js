@@ -30,6 +30,7 @@ const PANELS = {
   notifications: { titre: 'Notifications & Rappels',      sub: () => 'File d\'attente automatique',   btn: '＋ Notification',        action: 'nouvelle-notification' },
   finances:      { titre: 'Gestion financière',           sub: () => 'CA, paiements, mensualités',    btn: '＋ Paiement',            action: 'nouveau-paiement' },
   stats:         { titre: 'Statistiques & Performance',   sub: () => 'Vision globale et SaaS Afrique', btn: '📄 Rapport PDF',        action: 'rapport-pdf' },
+  garages:       { titre: 'Garages partenaires',          sub: () => 'Réseau SERENO — base du SaaS multi-garages', btn: '＋ Ajouter un garage', action: 'nouveau-garage' },
 };
 
 // ============================================================
@@ -75,8 +76,10 @@ document.getElementById('modal-valider').onclick = async () => {
   const btn = document.getElementById('modal-valider');
   btn.disabled = true;
   try {
-    await modalOnValider();
-    fermerModal();
+    // Un handler peut retourner false pour garder le modal ouvert
+    // (ex: il a ouvert un modal de résultat par-dessus).
+    const resultat = await modalOnValider();
+    if (resultat !== false) fermerModal();
   } catch (err) {
     erreurToast(err);
   } finally {
@@ -186,6 +189,7 @@ function chargerPanel(nom) {
     notifications: chargerNotifications,
     finances: chargerFinances,
     stats: chargerStats,
+    garages: chargerGarages,
   };
   (chargeurs[nom] || (() => {}))().catch?.(erreurToast);
 }
@@ -356,9 +360,10 @@ async function chargerClients() {
         <td>${FMT.echap(c.vehicules_resume || '—')} <span class="badge badge-gray">${c.nb_vehicules}</span></td>
         <td>${badgeFormule(c.formule_active)}</td>
         <td>${FMT.date(c.prochaine_expiration)}</td>
-        <td>
+        <td style="white-space:nowrap;">
           <button class="btn-secondary btn-mini" onclick="modalClient(${c.id})">✏️</button>
           <button class="btn-secondary btn-mini" onclick="voirClient(${c.id})">👁</button>
+          ${!c.utilisateur_id ? `<button class="btn-secondary btn-mini" title="Créer l'accès espace client" onclick="creerAccesClient(${c.id}, '${FMT.echap(c.nom)}')">🔑</button>` : '<span title="Accès espace client actif">🟢</span>'}
         </td>
       </tr>`).join(''),
     ETAT.clientsRecherche ? 'Aucun client ne correspond à cette recherche.' : 'Aucun client. Créez le premier !'
@@ -434,6 +439,37 @@ function modalClient(id = null) {
       await rafraichirCaches();
       if (ETAT.panel === 'clients') chargerClients();
     });
+}
+
+function creerAccesClient(id, nom) {
+  ouvrirModal('🔑 Créer l\'accès espace client — ' + nom, `
+    <p style="font-size:13px; color:var(--sous-texte); margin-bottom:12px;">
+      Un compte (rôle client) sera créé avec l'email de la fiche.
+      Laissez vide pour générer un mot de passe temporaire.</p>
+    ${champ('f-mdp', 'Mot de passe (optionnel, min. 8 caractères)', 'text', { full: true })}`,
+    async () => {
+      const corps = {};
+      if (val('f-mdp')) corps.mot_de_passe = val('f-mdp');
+      const r = await API.post(`/clients/${id}/creer-acces`, corps);
+      if (r.mot_de_passe_temporaire) {
+        ouvrirModal('✅ Accès créé', `
+          <p style="font-size:13px; margin-bottom:10px;">Transmettez ces identifiants au client (affichés une seule fois) :</p>
+          <div class="stat-row"><span class="stat-label">Email</span><span class="stat-value">${FMT.echap(r.email)}</span></div>
+          <div class="stat-row"><span class="stat-label">Mot de passe temporaire</span>
+            <span class="stat-value" style="font-family:monospace; font-size:15px; color:var(--orange);">${FMT.echap(r.mot_de_passe_temporaire)}</span></div>`,
+          null, 'Fermer');
+        document.getElementById('modal-valider').style.display = 'none';
+        const restaurer = () => { document.getElementById('modal-valider').style.display = ''; };
+        document.getElementById('modal-annuler').addEventListener('click', restaurer, { once: true });
+        document.getElementById('modal-fermer').addEventListener('click', restaurer, { once: true });
+        await rafraichirCaches();
+        chargerClients();
+        return false; // le modal de résultat reste affiché
+      }
+      toast('Accès espace client créé.');
+      await rafraichirCaches();
+      chargerClients();
+    }, 'Créer l\'accès');
 }
 
 // ============================================================
@@ -698,18 +734,56 @@ function modalPaiement(contratId = null) {
       ${champSelect('f-statut', 'Statut', [
         { v: 'payé', t: 'Payé' }, { v: 'en_attente', t: 'En attente' },
       ])}
+      <div class="form-group full">
+        <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+          <input type="checkbox" id="f-enligne">
+          📱 Initier la transaction Mobile Money en ligne (Orange Money / MTN MoMo)
+        </label>
+      </div>
+      ${champ('f-telephone', 'Téléphone payeur (MTN en ligne)', 'tel', { placeholder: '+237 6XX XXX XXX' })}
     </div>`;
 
   const valider = async () => {
-    const corps = {
-      contrat_id: contratId || Number(val('f-contrat')),
-      montant: Number(val('f-montant')),
+    const contratChoisi = contratId || Number(val('f-contrat'));
+    if (!contratChoisi) throw new Error('Choisissez un contrat.');
+    const montant = Number(val('f-montant'));
+    if (!montant) throw new Error('Montant requis.');
+
+    // Paiement en ligne : initiation via l'API opérateur
+    if (document.getElementById('f-enligne')?.checked) {
+      const moyen = val('f-moyen');
+      if (!['orange_money', 'mtn_momo'].includes(moyen)) {
+        throw new Error('Le paiement en ligne nécessite Orange Money ou MTN MoMo.');
+      }
+      const r = await API.post('/paiements/mobile/initier', {
+        contrat_id: contratChoisi, montant,
+        operateur: moyen === 'orange_money' ? 'orange' : 'mtn',
+        telephone: val('f-telephone') || null,
+      });
+      if (r.payment_url) {
+        ouvrirModal('🟠 Lien de paiement Orange Money', `
+          <p style="font-size:13px; margin-bottom:10px;">Transmettez ce lien au client (ou ouvrez-le) pour finaliser le paiement :</p>
+          <input class="form-input" readonly value="${FMT.echap(r.payment_url)}" onclick="this.select()">
+          <div style="margin-top:12px;">
+            <a href="${FMT.echap(r.payment_url)}" target="_blank" class="btn-primary btn-orange" style="text-decoration:none;">Ouvrir la page de paiement</a>
+          </div>`, null, 'Fermer');
+        document.getElementById('modal-valider').style.display = 'none';
+        const restaurer = () => { document.getElementById('modal-valider').style.display = ''; };
+        document.getElementById('modal-annuler').addEventListener('click', restaurer, { once: true });
+        document.getElementById('modal-fermer').addEventListener('click', restaurer, { once: true });
+        return false;
+      }
+      toast(r.message || 'Demande MoMo envoyée : le client valide sur son téléphone.');
+      if (ETAT.panel === 'finances') chargerFinances();
+      return;
+    }
+
+    // Enregistrement manuel classique
+    await API.post('/paiements', {
+      contrat_id: contratChoisi, montant,
       moyen: val('f-moyen'), date_paiement: val('f-date'),
       reference_paiement: val('f-ref') || null, statut: val('f-statut'),
-    };
-    if (!corps.contrat_id) throw new Error('Choisissez un contrat.');
-    if (!corps.montant) throw new Error('Montant requis.');
-    await API.post('/paiements', corps);
+    });
     toast('Paiement enregistré.');
     if (ETAT.panel === 'contrats') chargerContrats();
     if (ETAT.panel === 'finances') chargerFinances();
@@ -1227,6 +1301,73 @@ async function chargerStats() {
 }
 
 // ============================================================
+//  GARAGES PARTENAIRES
+// ============================================================
+async function chargerGarages() {
+  const zone = document.getElementById('table-garages');
+  zone.innerHTML = chargementHtml;
+  const data = await API.get('/garages');
+
+  zone.innerHTML = tableHtml(
+    ['Garage', 'Adresse', 'Téléphone', 'Spécialités', 'Note', 'Statut', 'Actions'],
+    data.garages.map(g => `
+      <tr>
+        <td><b>${FMT.echap(g.nom)}</b></td>
+        <td>${FMT.echap(g.adresse || '—')}</td>
+        <td>${FMT.echap(g.telephone || '—')}</td>
+        <td>${g.specialites.map(s => `<span class="badge badge-gray" style="margin:1px;">${FMT.echap(s)}</span>`).join(' ') || '—'}</td>
+        <td>${g.note > 0 ? '⭐ ' + Number(g.note).toFixed(1) : '—'}</td>
+        <td>${g.actif == 1 ? '<span class="badge badge-green">Actif</span>' : '<span class="badge badge-gray">Inactif</span>'}</td>
+        <td style="white-space:nowrap;">
+          <button class="btn-secondary btn-mini" onclick="modalGarage(${g.id})">✏️</button>
+          ${g.actif == 1 ? `<button class="btn-secondary btn-mini" title="Désactiver" onclick="desactiverGarage(${g.id})">🚫</button>` : ''}
+        </td>
+      </tr>`).join(''),
+    'Aucun garage partenaire. Ajoutez le premier pour bâtir le réseau !'
+  );
+  ETAT.cacheGarages = data.garages;
+}
+
+function modalGarage(id = null) {
+  const existant = id ? (ETAT.cacheGarages || []).find(g => String(g.id) === String(id)) : null;
+  ouvrirModal(id ? '✏️ Modifier le garage' : '＋ Nouveau garage partenaire', `
+    <div class="form-grid">
+      ${champ('f-nom', 'Nom du garage', 'text', { requis: true, full: true, valeur: existant?.nom || '' })}
+      ${champ('f-adresse', 'Adresse', 'text', { full: true, valeur: existant?.adresse || '' })}
+      ${champ('f-telephone', 'Téléphone', 'tel', { valeur: existant?.telephone || '' })}
+      ${champ('f-email', 'Email', 'email', { valeur: existant?.email || '' })}
+      ${champ('f-specialites', 'Spécialités (séparées par des virgules)', 'text',
+        { full: true, valeur: (existant?.specialites || []).join(', '), placeholder: 'Électricité auto, Climatisation, Carrosserie' })}
+      ${id ? champ('f-note', 'Note (0 à 5)', 'number', { valeur: existant?.note || 0 }) : ''}
+    </div>`,
+    async () => {
+      const corps = {
+        nom: val('f-nom'), adresse: val('f-adresse') || null,
+        telephone: val('f-telephone') || null, email: val('f-email') || null,
+        specialites: val('f-specialites').split(',').map(s => s.trim()).filter(Boolean),
+      };
+      if (!corps.nom) throw new Error('Le nom du garage est requis.');
+      if (id) {
+        if (val('f-note') !== '') corps.note = Math.min(5, Math.max(0, Number(val('f-note'))));
+        await API.put('/garages/' + id, corps);
+        toast('Garage mis à jour.');
+      } else {
+        await API.post('/garages', corps);
+        toast('Garage partenaire ajouté.');
+      }
+      chargerGarages();
+    });
+}
+
+async function desactiverGarage(id) {
+  try {
+    await API.supprimer('/garages/' + id);
+    toast('Garage désactivé.');
+    chargerGarages();
+  } catch (err) { erreurToast(err); }
+}
+
+// ============================================================
 //  ACTIONS GLOBALES (boutons data-action)
 // ============================================================
 document.addEventListener('click', (e) => {
@@ -1241,6 +1382,7 @@ document.addEventListener('click', (e) => {
     'nouvelle-intervention': () => modalIntervention(),
     'nouvelle-notification': () => modalNotification(),
     'nouveau-paiement':      () => modalPaiement(),
+    'nouveau-garage':        () => modalGarage(),
     'tout-lu':               async () => {
       await API.post('/notifications/tout-lu').catch(erreurToast);
       toast('Toutes les notifications sont lues.');

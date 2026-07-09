@@ -34,6 +34,9 @@
     <div class="nav-item" data-panel="notifications"><span class="icon">🔔</span><span>Notifications</span><span class="nav-badge" id="badge-notifs"></span></div>
     <div class="nav-item" data-panel="finances"><span class="icon">💰</span><span>Finances</span></div>
     <div class="nav-item" data-panel="stats"><span class="icon">📈</span><span>Statistiques</span></div>
+
+    <div class="nav-label">Réseau</div>
+    <div class="nav-item" data-panel="garages"><span class="icon">🏪</span><span>Garages partenaires</span></div>
   </nav>
 
   <div class="sidebar-footer">
@@ -279,6 +282,17 @@
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- GARAGES PARTENAIRES -->
+    <div id="panel-garages" class="panel">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">🏪 Garages partenaires du réseau SERENO</div>
+          <button class="btn-primary btn-mini" data-action="nouveau-garage">+ Ajouter un garage</button>
+        </div>
+        <div class="table-scroll" id="table-garages"></div>
       </div>
     </div>
 

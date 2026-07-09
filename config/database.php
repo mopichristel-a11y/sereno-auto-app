@@ -40,6 +40,27 @@ define('MAIL_FROM_NAME', getenv('MAIL_FROM_NAME') ?: 'SERENO AUTO');
 // Téléphone du garage (affiché dans les messages)
 define('SERENO_TELEPHONE', getenv('SERENO_TELEPHONE') ?: '+237 6XX XXX XXX');
 
+// ------------------------------------------------------------
+// Paiements mobiles — Orange Money Web Payment (Cameroun)
+// developer.orange.com → créer une app "Orange Money Web Pay"
+// OM_CONSUMER_KEY = base64(client_id:client_secret)
+// ------------------------------------------------------------
+define('OM_CONSUMER_KEY', getenv('OM_CONSUMER_KEY') ?: '');
+define('OM_MERCHANT_KEY', getenv('OM_MERCHANT_KEY') ?: '');
+define('OM_TOKEN_URL',    getenv('OM_TOKEN_URL')    ?: 'https://api.orange.com/oauth/v3/token');
+define('OM_WEBPAY_URL',   getenv('OM_WEBPAY_URL')   ?: 'https://api.orange.com/orange-money-webpay/cm/v1/webpayment');
+define('OM_STATUS_URL',   getenv('OM_STATUS_URL')   ?: 'https://api.orange.com/orange-money-webpay/cm/v1/transactionstatus');
+
+// ------------------------------------------------------------
+// Paiements mobiles — MTN MoMo Collections
+// momodeveloper.mtn.com → souscrire au produit "Collections"
+// ------------------------------------------------------------
+define('MOMO_SUBSCRIPTION_KEY', getenv('MOMO_SUBSCRIPTION_KEY') ?: '');
+define('MOMO_API_USER',         getenv('MOMO_API_USER')         ?: '');
+define('MOMO_API_KEY',          getenv('MOMO_API_KEY')          ?: '');
+define('MOMO_ENVIRONMENT',      getenv('MOMO_ENVIRONMENT')      ?: 'sandbox'); // sandbox | mtncameroon
+define('MOMO_BASE_URL',         getenv('MOMO_BASE_URL')         ?: 'https://sandbox.momodeveloper.mtn.com');
+
 class Database {
     private static ?PDO $instance = null;
 
