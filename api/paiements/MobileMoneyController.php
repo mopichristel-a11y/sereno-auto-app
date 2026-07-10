@@ -17,6 +17,11 @@ class MobileMoneyController extends BaseController {
     private static function autoriserSurContrat(PDO $db, array $contrat): array {
         $user = AuthMiddleware::utilisateurCourant() ?? AuthMiddleware::authentifier();
         if (in_array($user['role'], ['admin', 'commercial', 'technicien'])) {
+            // Multi-tenant : le contrat doit appartenir au garage de l'agent
+            self::verifierGarage(
+                self::garageDe($user),
+                self::garageDuClient($db, (int)$contrat['client_id'])
+            );
             return $user;
         }
         $stmt = $db->prepare('SELECT id FROM clients WHERE utilisateur_id = ? AND id = ?');

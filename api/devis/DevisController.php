@@ -14,12 +14,17 @@ class DevisController extends BaseController {
     // GET /devis?statut=&client_id=&vehicule_id=&page=
     // ----------------------------------------------------------
     public static function index(): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $db = Database::connect();
         [$page, $limite, $offset] = self::pagination();
 
         $where  = [];
         $params = [];
+
+        if (($garage = self::garageDe($user)) !== null) {
+            $where[] = 'c.garage_id = :garage';
+            $params[':garage'] = $garage;
+        }
         foreach (['statut' => 'd.statut', 'client_id' => 'd.client_id', 'vehicule_id' => 'd.vehicule_id'] as $get => $col) {
             if (!empty($_GET[$get])) {
                 $where[]           = "$col = :$get";
@@ -28,7 +33,9 @@ class DevisController extends BaseController {
         }
         $sqlWhere = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 
-        $total = $db->prepare("SELECT COUNT(*) FROM devis d $sqlWhere");
+        $total = $db->prepare(
+            "SELECT COUNT(*) FROM devis d JOIN clients c ON c.id = d.client_id $sqlWhere"
+        );
         $total->execute($params);
         $nbTotal = (int)$total->fetchColumn();
 
@@ -61,10 +68,11 @@ class DevisController extends BaseController {
     // GET /devis/{id} — avec couverture CSA appliquée
     // ----------------------------------------------------------
     public static function show(int $id): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $db = Database::connect();
 
         $devis = self::chargerDevisComplet($db, $id);
+        self::verifierGarage(self::garageDe($user), self::garageDuClient($db, (int)$devis['client_id']));
         self::succes(['devis' => $devis]);
     }
 
@@ -74,7 +82,7 @@ class DevisController extends BaseController {
     //         main_oeuvre_pct?=10, notes?, validite_jours?=30, diagnostic_id? }
     // ----------------------------------------------------------
     public static function store(): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $data = self::bodyJson();
         self::requis($data, ['client_id', 'vehicule_id', 'lignes']);
 
@@ -83,7 +91,8 @@ class DevisController extends BaseController {
         }
 
         $db = Database::connect();
-        self::trouverOu404($db, 'clients', (int)$data['client_id'], 'Client');
+        $client = self::trouverOu404($db, 'clients', (int)$data['client_id'], 'Client');
+        self::verifierGarage(self::garageDe($user), $client['garage_id']);
         $vehicule = self::trouverOu404($db, 'vehicules', (int)$data['vehicule_id'], 'Véhicule');
         if ((int)$vehicule['client_id'] !== (int)$data['client_id']) {
             self::erreur(400, 'Ce véhicule n\'appartient pas à ce client.');
@@ -122,11 +131,12 @@ class DevisController extends BaseController {
     // PUT /devis/{id} — modifier un brouillon
     // ----------------------------------------------------------
     public static function update(int $id): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $data = self::bodyJson();
         $db   = Database::connect();
 
         $devis = self::trouverOu404($db, 'devis', $id, 'Devis');
+        self::verifierGarage(self::garageDe($user), self::garageDuClient($db, (int)$devis['client_id']));
         if (!in_array($devis['statut'], ['brouillon', 'envoyé'])) {
             self::erreur(409, "Devis {$devis['statut']} : modification impossible.");
         }
@@ -175,6 +185,10 @@ class DevisController extends BaseController {
 
         $db    = Database::connect();
         $devis = self::trouverOu404($db, 'devis', $id, 'Devis');
+        self::verifierGarage(
+            self::garageDe(AuthMiddleware::utilisateurCourant()),
+            self::garageDuClient($db, (int)$devis['client_id'])
+        );
 
         $db->prepare('UPDATE devis SET statut = ? WHERE id = ?')->execute([$data['statut'], $id]);
 
@@ -209,9 +223,10 @@ class DevisController extends BaseController {
     // GET /devis/{id}/pdf — télécharge le devis en PDF
     // ----------------------------------------------------------
     public static function pdf(int $id): void {
-        AuthMiddleware::equipeInterne();
+        $user  = AuthMiddleware::equipeInterne();
         $db    = Database::connect();
         $devis = self::chargerDevisComplet($db, $id);
+        self::verifierGarage(self::garageDe($user), self::garageDuClient($db, (int)$devis['client_id']));
 
         require_once __DIR__ . '/../../lib/PdfMinimal.php';
         $pdf = new PdfMinimal();

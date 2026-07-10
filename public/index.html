@@ -37,6 +37,11 @@
 
     <div class="nav-label">Réseau</div>
     <div class="nav-item" data-panel="garages"><span class="icon">🏪</span><span>Garages partenaires</span></div>
+
+    <div id="nav-saas" style="display:none;">
+      <div class="nav-label">Plateforme</div>
+      <div class="nav-item" data-panel="saas"><span class="icon">🌍</span><span>Console SaaS</span></div>
+    </div>
   </nav>
 
   <div class="sidebar-footer">
@@ -293,6 +298,18 @@
           <button class="btn-primary btn-mini" data-action="nouveau-garage">+ Ajouter un garage</button>
         </div>
         <div class="table-scroll" id="table-garages"></div>
+      </div>
+    </div>
+
+    <!-- CONSOLE SAAS (super-admin) -->
+    <div id="panel-saas" class="panel">
+      <div class="kpi-grid" id="saas-kpi"></div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">🌍 Garages abonnés à la plateforme</div>
+          <button class="btn-primary btn-mini" data-action="nouveau-garage-saas">+ Nouveau garage abonné</button>
+        </div>
+        <div class="table-scroll" id="table-saas"></div>
       </div>
     </div>
 

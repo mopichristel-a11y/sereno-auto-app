@@ -15,12 +15,17 @@ class PaiementController extends BaseController {
     // GET /paiements?contrat_id=&statut=&moyen=&mois=&annee=
     // ----------------------------------------------------------
     public static function index(): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $db = Database::connect();
         [$page, $limite, $offset] = self::pagination();
 
         $where  = [];
         $params = [];
+
+        if (($garage = self::garageDe($user)) !== null) {
+            $where[] = 'c.garage_id = :garage';
+            $params[':garage'] = $garage;
+        }
 
         if (!empty($_GET['contrat_id'])) {
             $where[] = 'p.contrat_id = :cid';
@@ -45,7 +50,13 @@ class PaiementController extends BaseController {
 
         $sqlWhere = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 
-        $total = $db->prepare("SELECT COUNT(*), COALESCE(SUM(p.montant), 0) FROM paiements p $sqlWhere");
+        $total = $db->prepare(
+            "SELECT COUNT(*), COALESCE(SUM(p.montant), 0)
+             FROM paiements p
+             JOIN contrats_csa ct ON ct.id = p.contrat_id
+             JOIN clients c       ON c.id = ct.client_id
+             $sqlWhere"
+        );
         $total->execute($params);
         [$nbTotal, $sommeTotal] = $total->fetch(PDO::FETCH_NUM);
 
@@ -73,11 +84,12 @@ class PaiementController extends BaseController {
     // GET /contrats/{id}/paiements — historique + échéances
     // ----------------------------------------------------------
     public static function parContrat(int $contratId): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $db = Database::connect();
 
         require_once __DIR__ . '/../contrats/ContratController.php';
         $contrat = self::trouverOu404($db, 'contrats_csa', $contratId, 'Contrat');
+        self::verifierGarage(self::garageDe($user), self::garageDuContrat($db, $contratId));
 
         $stmt = $db->prepare('SELECT * FROM paiements WHERE contrat_id = ? ORDER BY date_paiement DESC');
         $stmt->execute([$contratId]);
@@ -100,7 +112,7 @@ class PaiementController extends BaseController {
     // Body: { contrat_id, montant, moyen, date_paiement?, reference_paiement?, statut?, notes? }
     // ----------------------------------------------------------
     public static function store(): void {
-        AuthMiddleware::adminOuCommercial();
+        $user = AuthMiddleware::adminOuCommercial();
         $data = self::bodyJson();
         self::requis($data, ['contrat_id', 'montant', 'moyen']);
 
@@ -117,6 +129,7 @@ class PaiementController extends BaseController {
 
         $db = Database::connect();
         $contrat = self::trouverOu404($db, 'contrats_csa', (int)$data['contrat_id'], 'Contrat');
+        self::verifierGarage(self::garageDe($user), self::garageDuContrat($db, (int)$data['contrat_id']));
         if ($contrat['statut'] === 'résilié') {
             self::erreur(409, 'Contrat résilié : aucun paiement ne peut être enregistré.');
         }
@@ -145,11 +158,12 @@ class PaiementController extends BaseController {
     // PUT /paiements/{id} — corriger statut / référence / notes
     // ----------------------------------------------------------
     public static function update(int $id): void {
-        AuthMiddleware::adminOuCommercial();
+        $user = AuthMiddleware::adminOuCommercial();
         $data = self::bodyJson();
         $db   = Database::connect();
 
-        self::trouverOu404($db, 'paiements', $id, 'Paiement');
+        $paiement = self::trouverOu404($db, 'paiements', $id, 'Paiement');
+        self::verifierGarage(self::garageDe($user), self::garageDuContrat($db, (int)$paiement['contrat_id']));
 
         $set    = [];
         $params = [];
@@ -179,9 +193,10 @@ class PaiementController extends BaseController {
     // DELETE /paiements/{id}  (admin — correction d'erreur de saisie)
     // ----------------------------------------------------------
     public static function destroy(int $id): void {
-        AuthMiddleware::adminSeulement();
+        $user = AuthMiddleware::adminSeulement();
         $db = Database::connect();
-        self::trouverOu404($db, 'paiements', $id, 'Paiement');
+        $paiement = self::trouverOu404($db, 'paiements', $id, 'Paiement');
+        self::verifierGarage(self::garageDe($user), self::garageDuContrat($db, (int)$paiement['contrat_id']));
         $db->prepare('DELETE FROM paiements WHERE id = ?')->execute([$id]);
         self::succes([], 'Paiement supprimé.');
     }

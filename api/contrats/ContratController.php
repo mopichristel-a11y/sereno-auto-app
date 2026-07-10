@@ -26,12 +26,17 @@ class ContratController extends BaseController {
     // GET /contrats?statut=&client_id=&formule=&page=
     // ----------------------------------------------------------
     public static function index(): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $db = Database::connect();
         [$page, $limite, $offset] = self::pagination();
 
         $where  = [];
         $params = [];
+
+        if (($garage = self::garageDe($user)) !== null) {
+            $where[] = 'c.garage_id = :garage';
+            $params[':garage'] = $garage;
+        }
 
         if (!empty($_GET['statut'])) {
             $where[] = 'ct.statut = :statut';
@@ -49,7 +54,10 @@ class ContratController extends BaseController {
         $sqlWhere = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 
         $total = $db->prepare(
-            "SELECT COUNT(*) FROM contrats_csa ct JOIN formules_csa f ON f.id = ct.formule_id $sqlWhere"
+            "SELECT COUNT(*) FROM contrats_csa ct
+             JOIN formules_csa f ON f.id = ct.formule_id
+             JOIN clients c      ON c.id = ct.client_id
+             $sqlWhere"
         );
         $total->execute($params);
         $nbTotal = (int)$total->fetchColumn();
@@ -90,8 +98,9 @@ class ContratController extends BaseController {
     // GET /contrats/{id}
     // ----------------------------------------------------------
     public static function show(int $id): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $db = Database::connect();
+        self::verifierGarage(self::garageDe($user), self::garageDuContrat($db, $id));
 
         $stmt = $db->prepare(
             "SELECT ct.*, f.nom AS formule, f.garanties, c.nom AS client_nom, c.telephone AS client_telephone,
@@ -139,7 +148,8 @@ class ContratController extends BaseController {
         self::requis($data, ['client_id', 'vehicule_id', 'date_debut']);
 
         $db = Database::connect();
-        self::trouverOu404($db, 'clients', (int)$data['client_id'], 'Client');
+        $client   = self::trouverOu404($db, 'clients', (int)$data['client_id'], 'Client');
+        self::verifierGarage(self::garageDe($user), $client['garage_id']);
         $vehicule = self::trouverOu404($db, 'vehicules', (int)$data['vehicule_id'], 'Véhicule');
 
         if ((int)$vehicule['client_id'] !== (int)$data['client_id']) {
@@ -204,11 +214,12 @@ class ContratController extends BaseController {
     // PUT /contrats/{id} — modifier notes / dates / formule
     // ----------------------------------------------------------
     public static function update(int $id): void {
-        AuthMiddleware::adminOuCommercial();
+        $user = AuthMiddleware::adminOuCommercial();
         $data = self::bodyJson();
         $db   = Database::connect();
 
         $contrat = self::trouverOu404($db, 'contrats_csa', $id, 'Contrat');
+        self::verifierGarage(self::garageDe($user), self::garageDuContrat($db, $id));
         if ($contrat['statut'] === 'résilié') {
             self::erreur(409, 'Contrat résilié : modification impossible.');
         }
@@ -253,11 +264,12 @@ class ContratController extends BaseController {
     // POST /contrats/{id}/resilier
     // ----------------------------------------------------------
     public static function resilier(int $id): void {
-        AuthMiddleware::adminOuCommercial();
+        $user = AuthMiddleware::adminOuCommercial();
         $data = self::bodyJson();
         $db   = Database::connect();
 
         $contrat = self::trouverOu404($db, 'contrats_csa', $id, 'Contrat');
+        self::verifierGarage(self::garageDe($user), self::garageDuContrat($db, $id));
         if ($contrat['statut'] === 'résilié') self::erreur(409, 'Contrat déjà résilié.');
 
         $motif = trim($data['motif'] ?? '');
@@ -282,6 +294,7 @@ class ContratController extends BaseController {
         $db   = Database::connect();
 
         $ancien = self::trouverOu404($db, 'contrats_csa', $id, 'Contrat');
+        self::verifierGarage(self::garageDe($user), self::garageDuContrat($db, $id));
 
         $dureeMois = max(1, (int)($data['duree_mois'] ?? 12));
         // Le nouveau contrat démarre au lendemain de l'expiration (ou aujourd'hui si déjà expiré)
@@ -342,10 +355,11 @@ class ContratController extends BaseController {
     // Calcule la prise en charge CSA sur une réparation.
     // ----------------------------------------------------------
     public static function couverture(int $id): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $db = Database::connect();
 
         $contrat = self::trouverOu404($db, 'contrats_csa', $id, 'Contrat');
+        self::verifierGarage(self::garageDe($user), self::garageDuContrat($db, $id));
 
         $montant = (float)($_GET['montant'] ?? 0);
         if ($montant <= 0) self::erreur(400, 'Paramètre montant requis (> 0).');
@@ -372,9 +386,12 @@ class ContratController extends BaseController {
     // Contrats actifs expirant dans N jours (alertes J-30/15/7/1).
     // ----------------------------------------------------------
     public static function expirations(): void {
-        AuthMiddleware::equipeInterne();
+        $user  = AuthMiddleware::equipeInterne();
         $db    = Database::connect();
         $jours = max(1, (int)($_GET['jours'] ?? 30));
+
+        $garage       = self::garageDe($user);
+        $filtreGarage = $garage !== null ? 'AND c.garage_id = ' . $garage : '';
 
         $stmt = $db->prepare(
             "SELECT ct.id, ct.reference, ct.date_expiration, ct.mensualite,
@@ -387,6 +404,7 @@ class ContratController extends BaseController {
              JOIN vehicules v    ON v.id = ct.vehicule_id
              WHERE ct.statut = 'actif'
                AND ct.date_expiration BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL ? DAY)
+               $filtreGarage
              ORDER BY ct.date_expiration ASC"
         );
         $stmt->execute([$jours]);

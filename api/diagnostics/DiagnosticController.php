@@ -15,12 +15,17 @@ class DiagnosticController extends BaseController {
     // GET /diagnostics?vehicule_id=&statut=&page=
     // ----------------------------------------------------------
     public static function index(): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $db = Database::connect();
         [$page, $limite, $offset] = self::pagination();
 
         $where  = [];
         $params = [];
+
+        if (($garage = self::garageDe($user)) !== null) {
+            $where[] = 'c.garage_id = :garage';
+            $params[':garage'] = $garage;
+        }
         if (!empty($_GET['vehicule_id'])) {
             $where[] = 'd.vehicule_id = :vid';
             $params[':vid'] = (int)$_GET['vehicule_id'];
@@ -31,7 +36,12 @@ class DiagnosticController extends BaseController {
         }
         $sqlWhere = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 
-        $total = $db->prepare("SELECT COUNT(*) FROM diagnostics d $sqlWhere");
+        $total = $db->prepare(
+            "SELECT COUNT(*) FROM diagnostics d
+             JOIN vehicules v ON v.id = d.vehicule_id
+             JOIN clients c   ON c.id = v.client_id
+             $sqlWhere"
+        );
         $total->execute($params);
         $nbTotal = (int)$total->fetchColumn();
 
@@ -71,7 +81,7 @@ class DiagnosticController extends BaseController {
     // GET /diagnostics/{id}
     // ----------------------------------------------------------
     public static function show(int $id): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $db = Database::connect();
 
         $stmt = $db->prepare(
@@ -87,6 +97,7 @@ class DiagnosticController extends BaseController {
         $stmt->execute([$id]);
         $diagnostic = $stmt->fetch();
         if (!$diagnostic) self::erreur(404, "Diagnostic introuvable (id $id).");
+        self::verifierGarage(self::garageDe($user), self::garageDuVehicule($db, (int)$diagnostic['vehicule_id']));
 
         $diagnostic['codes_dtc'] = self::decoderJson($diagnostic['codes_dtc']);
         $diagnostic['photos']    = self::decoderJson($diagnostic['photos']);
@@ -113,6 +124,7 @@ class DiagnosticController extends BaseController {
 
         $db = Database::connect();
         $vehicule = self::trouverOu404($db, 'vehicules', (int)$data['vehicule_id'], 'Véhicule');
+        self::verifierGarage(self::garageDe($user), self::garageDuVehicule($db, (int)$data['vehicule_id']));
 
         $codesDtc = $data['codes_dtc'] ?? [];
         if (!is_array($codesDtc)) self::erreur(400, 'codes_dtc doit être un tableau.');
@@ -159,11 +171,12 @@ class DiagnosticController extends BaseController {
     // PUT /diagnostics/{id}
     // ----------------------------------------------------------
     public static function update(int $id): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $data = self::bodyJson();
         $db   = Database::connect();
 
-        self::trouverOu404($db, 'diagnostics', $id, 'Diagnostic');
+        $diagnostic = self::trouverOu404($db, 'diagnostics', $id, 'Diagnostic');
+        self::verifierGarage(self::garageDe($user), self::garageDuVehicule($db, (int)$diagnostic['vehicule_id']));
 
         $set    = [];
         $params = [];
@@ -196,7 +209,7 @@ class DiagnosticController extends BaseController {
     // Body: { lignes: [{designation, montant}], main_oeuvre_pct?=10, notes?, validite_jours?=30 }
     // ----------------------------------------------------------
     public static function genererDevis(int $id): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $data = self::bodyJson();
         self::requis($data, ['lignes']);
 
@@ -206,6 +219,7 @@ class DiagnosticController extends BaseController {
 
         $db = Database::connect();
         $diagnostic = self::trouverOu404($db, 'diagnostics', $id, 'Diagnostic');
+        self::verifierGarage(self::garageDe($user), self::garageDuVehicule($db, (int)$diagnostic['vehicule_id']));
         $vehicule   = self::trouverOu404($db, 'vehicules', (int)$diagnostic['vehicule_id'], 'Véhicule');
 
         $sousTotal = 0;

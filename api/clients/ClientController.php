@@ -12,13 +12,19 @@ class ClientController extends BaseController {
     // GET /clients?recherche=&type=&page=&limite=
     // ----------------------------------------------------------
     public static function index(): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $db = Database::connect();
 
         [$page, $limite, $offset] = self::pagination();
 
         $where  = [];
         $params = [];
+
+        // Cloisonnement par garage (super-admin : accès global)
+        if (($garage = self::garageDe($user)) !== null) {
+            $where[] = 'c.garage_id = :garage';
+            $params[':garage'] = $garage;
+        }
 
         if (!empty($_GET['recherche'])) {
             $where[]  = '(c.nom LIKE :q OR c.telephone LIKE :q OR c.email LIKE :q
@@ -67,10 +73,11 @@ class ClientController extends BaseController {
     // GET /clients/{id} — fiche complète
     // ----------------------------------------------------------
     public static function show(int $id): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $db = Database::connect();
 
         $client = self::trouverOu404($db, 'clients', $id, 'Client');
+        self::verifierGarage(self::garageDe($user), $client['garage_id']);
 
         $vehicules = $db->prepare('SELECT * FROM vehicules WHERE client_id = ? ORDER BY created_at DESC');
         $vehicules->execute([$id]);
@@ -120,18 +127,22 @@ class ClientController extends BaseController {
 
         $db = Database::connect();
 
-        // Anti-doublon simple sur le téléphone
-        $test = $db->prepare('SELECT id, nom FROM clients WHERE telephone = ?');
-        $test->execute([trim($data['telephone'])]);
+        // Tenant : garage de l'utilisateur ; super-admin → garage_id explicite
+        $garageId = self::garageDe($user) ?? (int)($data['garage_id'] ?? 1);
+
+        // Anti-doublon simple sur le téléphone (au sein du garage)
+        $test = $db->prepare('SELECT id, nom FROM clients WHERE telephone = ? AND garage_id = ?');
+        $test->execute([trim($data['telephone']), $garageId]);
         if ($doublon = $test->fetch()) {
             self::erreur(409, "Un client existe déjà avec ce téléphone : {$doublon['nom']} (id {$doublon['id']}).");
         }
 
         $stmt = $db->prepare(
-            'INSERT INTO clients (nom, telephone, email, adresse, piece_identite, num_piece, profession, type_client, created_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO clients (garage_id, nom, telephone, email, adresse, piece_identite, num_piece, profession, type_client, created_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
+            $garageId,
             trim($data['nom']),
             trim($data['telephone']),
             $data['email'] ?? null,
@@ -150,11 +161,12 @@ class ClientController extends BaseController {
     // PUT /clients/{id}
     // ----------------------------------------------------------
     public static function update(int $id): void {
-        AuthMiddleware::adminOuCommercial();
+        $user = AuthMiddleware::adminOuCommercial();
         $data = self::bodyJson();
         $db   = Database::connect();
 
-        self::trouverOu404($db, 'clients', $id, 'Client');
+        $client = self::trouverOu404($db, 'clients', $id, 'Client');
+        self::verifierGarage(self::garageDe($user), $client['garage_id']);
 
         $champs  = ['nom', 'telephone', 'email', 'adresse', 'piece_identite', 'num_piece', 'profession', 'type_client'];
         $set     = [];
@@ -183,11 +195,12 @@ class ClientController extends BaseController {
     // Body: { mot_de_passe? } — généré si absent.
     // ----------------------------------------------------------
     public static function creerAcces(int $id): void {
-        AuthMiddleware::adminOuCommercial();
+        $userCourant = AuthMiddleware::adminOuCommercial();
         $data = self::bodyJson();
         $db   = Database::connect();
 
         $client = self::trouverOu404($db, 'clients', $id, 'Client');
+        self::verifierGarage(self::garageDe($userCourant), $client['garage_id']);
 
         if ($client['utilisateur_id']) {
             self::erreur(409, 'Ce client possède déjà un accès à l\'espace client.');
@@ -220,13 +233,14 @@ class ClientController extends BaseController {
         $db->beginTransaction();
         try {
             $db->prepare(
-                'INSERT INTO utilisateurs (nom, prenom, email, mot_de_passe, telephone, role)
-                 VALUES (?, ?, ?, ?, ?, "client")'
+                'INSERT INTO utilisateurs (nom, prenom, email, mot_de_passe, telephone, role, garage_id)
+                 VALUES (?, ?, ?, ?, ?, "client", ?)'
             )->execute([
                 $nom, $prenom,
                 strtolower(trim($client['email'])),
                 password_hash($motDePasse, PASSWORD_BCRYPT, ['cost' => 12]),
                 $client['telephone'],
+                (int)$client['garage_id'],
             ]);
             $utilisateurId = (int)$db->lastInsertId();
 
@@ -250,10 +264,11 @@ class ClientController extends BaseController {
     // DELETE /clients/{id}  (admin)
     // ----------------------------------------------------------
     public static function destroy(int $id): void {
-        AuthMiddleware::adminSeulement();
+        $user = AuthMiddleware::adminSeulement();
         $db = Database::connect();
 
-        self::trouverOu404($db, 'clients', $id, 'Client');
+        $client = self::trouverOu404($db, 'clients', $id, 'Client');
+        self::verifierGarage(self::garageDe($user), $client['garage_id']);
 
         // Bloquer si contrats actifs
         $actifs = $db->prepare("SELECT COUNT(*) FROM contrats_csa WHERE client_id = ? AND statut = 'actif'");

@@ -31,6 +31,7 @@ const PANELS = {
   finances:      { titre: 'Gestion financière',           sub: () => 'CA, paiements, mensualités',    btn: '＋ Paiement',            action: 'nouveau-paiement' },
   stats:         { titre: 'Statistiques & Performance',   sub: () => 'Vision globale et SaaS Afrique', btn: '📄 Rapport PDF',        action: 'rapport-pdf' },
   garages:       { titre: 'Garages partenaires',          sub: () => 'Réseau SERENO — base du SaaS multi-garages', btn: '＋ Ajouter un garage', action: 'nouveau-garage' },
+  saas:          { titre: 'Console SaaS',                 sub: () => 'Garages abonnés, plans et revenus plateforme', btn: '＋ Nouveau garage abonné', action: 'nouveau-garage-saas' },
 };
 
 // ============================================================
@@ -190,6 +191,7 @@ function chargerPanel(nom) {
     finances: chargerFinances,
     stats: chargerStats,
     garages: chargerGarages,
+    saas: chargerSaas,
   };
   (chargeurs[nom] || (() => {}))().catch?.(erreurToast);
 }
@@ -204,7 +206,12 @@ function afficherUtilisateur() {
   document.getElementById('user-avatar').textContent = initiales;
   document.getElementById('user-nom').textContent = `${u.prenom || ''} ${u.nom || ''}`.trim();
   const roles = { admin: 'Administrateur', commercial: 'Commercial', technicien: 'Technicien' };
-  document.getElementById('user-role').textContent = roles[u.role] || u.role;
+  // Multi-tenant : afficher le garage courant ; super-admin → console SaaS visible
+  const estSuperAdmin = u.role === 'admin' && (u.garage_id === null || u.garage_id === undefined);
+  document.getElementById('user-role').textContent = estSuperAdmin
+    ? '🌍 Super-admin plateforme'
+    : (roles[u.role] || u.role) + (u.garage_nom ? ' · ' + u.garage_nom : '');
+  if (estSuperAdmin) document.getElementById('nav-saas').style.display = '';
 }
 
 document.getElementById('btn-logout').onclick = () => {
@@ -1368,6 +1375,147 @@ async function desactiverGarage(id) {
 }
 
 // ============================================================
+//  CONSOLE SAAS (super-admin)
+// ============================================================
+async function chargerSaas() {
+  const zone = document.getElementById('table-saas');
+  zone.innerHTML = chargementHtml;
+
+  const [stats, data] = await Promise.all([
+    API.get('/saas/stats'),
+    API.get('/saas/garages'),
+  ]);
+
+  document.getElementById('saas-kpi').innerHTML = `
+    <div class="kpi-card"><div class="kpi-icon">🏪</div>
+      <div class="kpi-value">${stats.garages_actifs}</div>
+      <div class="kpi-label">Garages abonnés actifs</div>
+      <div class="kpi-trend trend-warn">${stats.expirent_30j} abonnement(s) expirent sous 30 j</div></div>
+    <div class="kpi-card orange"><div class="kpi-icon">💰</div>
+      <div class="kpi-value" style="font-size:22px;">${FMT.fcfa(stats.mrr)}</div>
+      <div class="kpi-label">Revenu mensuel récurrent (MRR)</div>
+      <div class="kpi-trend trend-up">${stats.par_plan.map(p => p.plan + ' × ' + p.nb).join(' · ') || '—'}</div></div>
+    <div class="kpi-card blue"><div class="kpi-icon">🚗</div>
+      <div class="kpi-value">${stats.vehicules_total}</div>
+      <div class="kpi-label">Véhicules suivis (plateforme)</div>
+      <div class="kpi-trend trend-up">${stats.clients_total} clients</div></div>
+    <div class="kpi-card"><div class="kpi-icon">📋</div>
+      <div class="kpi-value">${stats.contrats_actifs}</div>
+      <div class="kpi-label">Contrats CSA actifs (plateforme)</div>
+      <div class="kpi-trend trend-up">Tous garages confondus</div></div>`;
+
+  ETAT.cacheSaas = data.garages;
+  zone.innerHTML = tableHtml(
+    ['Garage', 'Code', 'Ville', 'Plan', 'Abonnement', 'Équipe', 'Clients', 'Véhicules', 'Statut', 'Actions'],
+    data.garages.map(g => {
+      const jours = g.jours_restants;
+      const abo = g.abonnement_fin
+        ? FMT.date(g.abonnement_fin) + (jours !== null && jours <= 30 && jours >= 0
+            ? ` <span class="badge badge-orange">${jours} j</span>`
+            : jours !== null && jours < 0 ? ' <span class="badge badge-red">expiré</span>' : '')
+        : '—';
+      return `
+      <tr>
+        <td><b>${FMT.echap(g.nom)}</b></td>
+        <td><span class="badge badge-gray">${FMT.echap(g.code)}</span></td>
+        <td>${FMT.echap(g.ville || '—')}</td>
+        <td><span class="badge badge-${{ starter: 'blue', pro: 'orange', enterprise: 'green' }[g.plan]}">${g.plan}</span></td>
+        <td>${abo}</td>
+        <td>${g.nb_equipe}</td>
+        <td>${g.nb_clients}</td>
+        <td>${g.nb_vehicules}${g.quota_vehicules ? ' / ' + g.quota_vehicules : ''}</td>
+        <td>${g.actif == 1 ? '<span class="badge badge-green">Actif</span>' : '<span class="badge badge-red">Suspendu</span>'}</td>
+        <td style="white-space:nowrap;">
+          <button class="btn-secondary btn-mini" title="Renouveler l'abonnement" onclick="renouvelerSaas(${g.id}, '${FMT.echap(g.nom)}')">🔄</button>
+          <button class="btn-secondary btn-mini" title="Changer de plan" onclick="modalPlanSaas(${g.id}, '${g.plan}')">📶</button>
+          <button class="btn-secondary btn-mini" title="${g.actif == 1 ? 'Suspendre' : 'Réactiver'}"
+                  onclick="basculerSaas(${g.id}, ${g.actif == 1 ? 0 : 1})">${g.actif == 1 ? '⏸' : '▶️'}</button>
+        </td>
+      </tr>`;
+    }).join(''),
+    'Aucun garage abonné. Créez le premier !'
+  );
+}
+
+function modalGarageSaas() {
+  ouvrirModal('🌍 Nouveau garage abonné', `
+    <div class="form-grid">
+      ${champ('f-nom', 'Nom du garage', 'text', { requis: true, full: true, placeholder: 'Garage Excellence Abidjan' })}
+      ${champ('f-ville', 'Ville', 'text')}
+      ${champ('f-pays', 'Pays', 'text', { valeur: 'Cameroun' })}
+      ${champ('f-telephone', 'Téléphone', 'tel')}
+      ${champSelect('f-plan', 'Plan d\'abonnement', [
+        { v: 'starter',    t: 'Starter — 25 000 F/mois · 100 véhicules' },
+        { v: 'pro',        t: 'Pro — 50 000 F/mois · 500 véhicules' },
+        { v: 'enterprise', t: 'Enterprise — 100 000 F/mois · illimité' },
+      ])}
+      ${champ('f-duree', 'Durée initiale (mois)', 'number', { valeur: 1 })}
+      <div class="form-group full" style="border-top:1px solid var(--gris-bord); padding-top:12px;">
+        <label class="form-label" style="text-transform:uppercase; font-size:11px; color:var(--sous-texte);">Administrateur du garage</label>
+      </div>
+      ${champ('f-admin-nom', 'Nom', 'text', { requis: true })}
+      ${champ('f-admin-prenom', 'Prénom', 'text', { requis: true })}
+      ${champ('f-admin-email', 'Email de connexion', 'email', { requis: true, full: true })}
+    </div>`,
+    async () => {
+      if (!val('f-nom') || !val('f-admin-nom') || !val('f-admin-prenom') || !val('f-admin-email')) {
+        throw new Error('Nom du garage et identité de l\'administrateur requis.');
+      }
+      const r = await API.post('/saas/garages', {
+        nom: val('f-nom'), ville: val('f-ville') || null, pays: val('f-pays') || 'Cameroun',
+        telephone: val('f-telephone') || null,
+        plan: val('f-plan'), duree_mois: Number(val('f-duree') || 1),
+        admin: { nom: val('f-admin-nom'), prenom: val('f-admin-prenom'), email: val('f-admin-email') },
+      });
+      ouvrirModal('✅ Garage créé — ' + r.code, `
+        <p style="font-size:13px; margin-bottom:10px;">Transmettez ces identifiants au gérant (affichés une seule fois) :</p>
+        <div class="stat-row"><span class="stat-label">Email</span><span class="stat-value">${FMT.echap(r.admin.email)}</span></div>
+        <div class="stat-row"><span class="stat-label">Mot de passe temporaire</span>
+          <span class="stat-value" style="font-family:monospace; font-size:15px; color:var(--orange);">${FMT.echap(r.admin.mot_de_passe_temporaire || '(fourni)')}</span></div>
+        <div class="stat-row"><span class="stat-label">Abonnement jusqu'au</span><span class="stat-value">${FMT.date(r.abonnement_fin)}</span></div>`,
+        null, 'Fermer');
+      document.getElementById('modal-valider').style.display = 'none';
+      const restaurer = () => { document.getElementById('modal-valider').style.display = ''; };
+      document.getElementById('modal-annuler').addEventListener('click', restaurer, { once: true });
+      document.getElementById('modal-fermer').addEventListener('click', restaurer, { once: true });
+      chargerSaas();
+      return false;
+    }, 'Créer le garage');
+}
+
+function renouvelerSaas(id, nom) {
+  ouvrirModal('🔄 Renouveler — ' + nom, `
+    ${champ('f-duree', 'Durée (mois)', 'number', { valeur: 1, full: true })}`,
+    async () => {
+      const r = await API.post(`/saas/garages/${id}/renouveler`, { duree_mois: Number(val('f-duree') || 1) });
+      toast('Abonnement prolongé jusqu\'au ' + FMT.date(r.abonnement_fin) + '.');
+      chargerSaas();
+    }, 'Renouveler');
+}
+
+function modalPlanSaas(id, planActuel) {
+  ouvrirModal('📶 Changer de plan', `
+    ${champSelect('f-plan', 'Nouveau plan', [
+      { v: 'starter',    t: 'Starter — 25 000 F/mois · 100 véhicules' },
+      { v: 'pro',        t: 'Pro — 50 000 F/mois · 500 véhicules' },
+      { v: 'enterprise', t: 'Enterprise — 100 000 F/mois · illimité' },
+    ], { full: true, valeur: planActuel })}`,
+    async () => {
+      await API.put(`/saas/garages/${id}`, { plan: val('f-plan') });
+      toast('Plan mis à jour.');
+      chargerSaas();
+    });
+}
+
+async function basculerSaas(id, actif) {
+  try {
+    await API.put(`/saas/garages/${id}`, { actif });
+    toast(actif ? 'Garage réactivé.' : 'Garage suspendu (accès bloqué pour son équipe).');
+    chargerSaas();
+  } catch (err) { erreurToast(err); }
+}
+
+// ============================================================
 //  ACTIONS GLOBALES (boutons data-action)
 // ============================================================
 document.addEventListener('click', (e) => {
@@ -1383,6 +1531,7 @@ document.addEventListener('click', (e) => {
     'nouvelle-notification': () => modalNotification(),
     'nouveau-paiement':      () => modalPaiement(),
     'nouveau-garage':        () => modalGarage(),
+    'nouveau-garage-saas':   () => modalGarageSaas(),
     'tout-lu':               async () => {
       await API.post('/notifications/tout-lu').catch(erreurToast);
       toast('Toutes les notifications sont lues.');

@@ -31,9 +31,10 @@ class CarnetController extends BaseController {
     // GET /vehicules/{id}/carnet — historique complet + rappels
     // ----------------------------------------------------------
     public static function parVehicule(int $vehiculeId): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $db = Database::connect();
         $vehicule = self::trouverOu404($db, 'vehicules', $vehiculeId, 'Véhicule');
+        self::verifierGarage(self::garageDe($user), self::garageDuVehicule($db, $vehiculeId));
 
         $stmt = $db->prepare(
             "SELECT ce.*, i.reference AS intervention_reference
@@ -68,7 +69,7 @@ class CarnetController extends BaseController {
     // prochain_km / prochaine_date calculés automatiquement si absents.
     // ----------------------------------------------------------
     public static function store(): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $data = self::bodyJson();
         self::requis($data, ['vehicule_id', 'type_entretien']);
 
@@ -80,6 +81,7 @@ class CarnetController extends BaseController {
 
         $db = Database::connect();
         $vehicule = self::trouverOu404($db, 'vehicules', (int)$data['vehicule_id'], 'Véhicule');
+        self::verifierGarage(self::garageDe($user), self::garageDuVehicule($db, (int)$data['vehicule_id']));
 
         $dateIntervention = $data['date_intervention'] ?? date('Y-m-d');
         if (!strtotime($dateIntervention)) self::erreur(400, 'date_intervention invalide.');
@@ -127,11 +129,12 @@ class CarnetController extends BaseController {
     // PUT /carnet/{id}
     // ----------------------------------------------------------
     public static function update(int $id): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $data = self::bodyJson();
         $db   = Database::connect();
 
-        self::trouverOu404($db, 'carnet_entretien', $id, 'Entrée du carnet');
+        $entree = self::trouverOu404($db, 'carnet_entretien', $id, 'Entrée du carnet');
+        self::verifierGarage(self::garageDe($user), self::garageDuVehicule($db, (int)$entree['vehicule_id']));
 
         $set    = [];
         $params = [];
@@ -152,9 +155,10 @@ class CarnetController extends BaseController {
     // DELETE /carnet/{id}  (admin)
     // ----------------------------------------------------------
     public static function destroy(int $id): void {
-        AuthMiddleware::adminSeulement();
+        $user = AuthMiddleware::adminSeulement();
         $db = Database::connect();
-        self::trouverOu404($db, 'carnet_entretien', $id, 'Entrée du carnet');
+        $entree = self::trouverOu404($db, 'carnet_entretien', $id, 'Entrée du carnet');
+        self::verifierGarage(self::garageDe($user), self::garageDuVehicule($db, (int)$entree['vehicule_id']));
         $db->prepare('DELETE FROM carnet_entretien WHERE id = ?')->execute([$id]);
         self::succes([], 'Entrée supprimée du carnet.');
     }
@@ -164,13 +168,17 @@ class CarnetController extends BaseController {
     // Tous les rappels à venir, tous véhicules confondus.
     // ----------------------------------------------------------
     public static function rappels(): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $db = Database::connect();
 
+        $garage       = self::garageDe($user);
+        $filtreGarage = $garage !== null ? 'WHERE c.garage_id = ' . $garage : '';
+
         $vehicules = $db->query(
-            'SELECT v.id, v.marque, v.modele, v.immatriculation, v.kilometrage,
+            "SELECT v.id, v.marque, v.modele, v.immatriculation, v.kilometrage,
                     c.id AS client_id, c.nom AS client_nom, c.telephone
-             FROM vehicules v JOIN clients c ON c.id = v.client_id'
+             FROM vehicules v JOIN clients c ON c.id = v.client_id
+             $filtreGarage"
         )->fetchAll();
 
         $filtreUrgence = $_GET['urgence'] ?? null;

@@ -19,6 +19,7 @@ basée à Yaoundé, Cameroun. Conçue pour l'hébergement mutualisé **Hostinger
 | 9 | **Espace client** — portail dédié (rôle client) : véhicules, contrats, devis à accepter/refuser, demandes de RDV, notifications, paiement en ligne | `api/moi/`, `public/client.html` |
 | 10 | **Paiements en ligne** — Orange Money Web Payment (redirection) et MTN MoMo Collections (validation sur téléphone), callbacks avec re-vérification serveur | `services/MobileMoneyService.php`, `api/paiements/MobileMoneyController.php` |
 | 11 | **Garages partenaires** — CRUD du réseau (base du SaaS multi-garages) | `api/garages/` |
+| 12 | **SaaS multi-garages** — isolation des données par garage abonné, plans Starter/Pro/Enterprise avec quotas, contrôle d'abonnement (7 j de grâce), console plateforme super-admin (MRR, renouvellements, suspension) | `api/saas/`, `database/migration_v2_saas.sql` |
 
 ## 🚀 Déploiement sur Hostinger
 
@@ -130,7 +131,28 @@ POST /api/paiements/mobile/callback/orange · /callback/mtn   (webhooks opérate
 
 # Garages partenaires
 GET|POST /api/garages    PUT|DELETE /api/garages/{id}
+
+# Console SaaS (super-admin : role admin + garage_id NULL)
+GET  /api/saas/plans · /api/saas/garages · /api/saas/stats
+POST /api/saas/garages                      (garage + son admin, mot de passe temporaire)
+PUT  /api/saas/garages/{id}                 (plan, suspension, infos)
+POST /api/saas/garages/{id}/renouveler      {duree_mois}
 ```
+
+## 🌍 Multi-tenant (SaaS)
+
+- Chaque **garage abonné** (`garages_sms`) est un tenant : ses clients portent
+  `garage_id`, et véhicules / contrats / devis / interventions / RDV en héritent.
+- **Isolation stricte** : chaque requête de l'équipe d'un garage est filtrée sur
+  son `garage_id` ; l'accès à une ressource d'un autre garage renvoie 404.
+- **Super-admin** : `role = admin` avec `garage_id NULL` — vision globale +
+  console SaaS (création de garages, plans, renouvellements, suspension, MRR).
+- **Plans & quotas** : Starter 25 000 F/mois (100 véhicules) · Pro 50 000 F
+  (500) · Enterprise 100 000 F (illimité). Le quota bloque l'ajout de véhicules
+  (HTTP 402), l'abonnement expiré bloque l'équipe après 7 jours de grâce
+  (les clients finaux conservent leur espace).
+- **Migration** : base v1.1 existante → exécuter `database/migration_v2_saas.sql`
+  (crée le garage fondateur n°1 et y rattache les données existantes).
 
 ## 🎨 Frontend
 

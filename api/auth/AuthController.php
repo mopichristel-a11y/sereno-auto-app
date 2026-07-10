@@ -28,8 +28,11 @@ class AuthController {
 
         $db   = Database::connect();
         $stmt = $db->prepare(
-            'SELECT id, nom, prenom, email, mot_de_passe, role, actif, photo
-             FROM utilisateurs WHERE email = ? LIMIT 1'
+            'SELECT u.id, u.nom, u.prenom, u.email, u.mot_de_passe, u.role, u.actif, u.photo,
+                    u.garage_id, g.nom AS garage_nom, g.plan AS garage_plan
+             FROM utilisateurs u
+             LEFT JOIN garages_sms g ON g.id = u.garage_id
+             WHERE u.email = ? LIMIT 1'
         );
         $stmt->execute([$email]);
         $user = $stmt->fetch();
@@ -44,9 +47,10 @@ class AuthController {
 
         // Générer les tokens
         $accessToken  = JWT::genererToken([
-            'id'    => $user['id'],
-            'email' => $user['email'],
-            'role'  => $user['role'],
+            'id'        => $user['id'],
+            'email'     => $user['email'],
+            'role'      => $user['role'],
+            'garage_id' => $user['garage_id'],
         ]);
         $refreshToken = JWT::genererRefreshToken();
 
@@ -86,7 +90,7 @@ class AuthController {
 
         $db   = Database::connect();
         $stmt = $db->prepare(
-            'SELECT rt.utilisateur_id, rt.expire_le, u.id, u.email, u.role, u.nom, u.prenom, u.actif
+            'SELECT rt.utilisateur_id, rt.expire_le, u.id, u.email, u.role, u.nom, u.prenom, u.actif, u.garage_id
              FROM refresh_tokens rt
              JOIN utilisateurs u ON u.id = rt.utilisateur_id
              WHERE rt.token = ? LIMIT 1'
@@ -110,9 +114,10 @@ class AuthController {
 
         // Générer un nouveau access token
         $newAccessToken = JWT::genererToken([
-            'id'    => $row['id'],
-            'email' => $row['email'],
-            'role'  => $row['role'],
+            'id'        => $row['id'],
+            'email'     => $row['email'],
+            'role'      => $row['role'],
+            'garage_id' => $row['garage_id'],
         ]);
 
         self::succes([
@@ -170,9 +175,15 @@ class AuthController {
     // Body: { nom, prenom, email, mot_de_passe, telephone, role }
     // ----------------------------------------------------------
     public static function register(): void {
-        AuthMiddleware::adminSeulement();
+        $admin = AuthMiddleware::adminSeulement();
 
         $data = self::bodyJson();
+
+        // Multi-tenant : l'admin d'un garage crée des comptes DANS son garage.
+        // Le super-admin (garage_id NULL) peut préciser garage_id.
+        $garageId = $admin['garage_id'] !== null
+            ? (int)$admin['garage_id']
+            : (isset($data['garage_id']) ? (int)$data['garage_id'] : null);
 
         $champs = ['nom', 'prenom', 'email', 'mot_de_passe'];
         foreach ($champs as $c) {
@@ -207,8 +218,8 @@ class AuthController {
         $hash = password_hash($data['mot_de_passe'], PASSWORD_BCRYPT, ['cost' => 12]);
 
         $stmt = $db->prepare(
-            'INSERT INTO utilisateurs (nom, prenom, email, mot_de_passe, telephone, role)
-             VALUES (?, ?, ?, ?, ?, ?)'
+            'INSERT INTO utilisateurs (nom, prenom, email, mot_de_passe, telephone, role, garage_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             trim($data['nom']),
@@ -217,6 +228,7 @@ class AuthController {
             $hash,
             $data['telephone'] ?? null,
             $role,
+            $garageId,
         ]);
 
         $newId = $db->lastInsertId();

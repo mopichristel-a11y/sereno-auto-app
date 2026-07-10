@@ -7,7 +7,35 @@ SET FOREIGN_KEY_CHECKS = 0;
 SET NAMES utf8mb4;
 
 -- ------------------------------------------------------------
+-- TABLE : garages_sms — garages abonnés à la plateforme (SaaS)
+-- Plans : starter (25 000 F, 100 véhicules) ·
+--         pro (50 000 F, 500 véhicules) ·
+--         enterprise (100 000 F, illimité)
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS garages_sms (
+    id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    nom             VARCHAR(150) NOT NULL,
+    code            VARCHAR(20) NOT NULL UNIQUE,      -- ex: SAUT-YDE
+    ville           VARCHAR(100),
+    pays            VARCHAR(60) DEFAULT 'Cameroun',
+    telephone       VARCHAR(20),
+    email           VARCHAR(150),
+    logo            VARCHAR(255),
+    plan            ENUM('starter','pro','enterprise') NOT NULL DEFAULT 'starter',
+    abonnement_fin  DATE,                              -- expiration de l'abonnement SaaS
+    actif           TINYINT(1) NOT NULL DEFAULT 1,
+    notes           TEXT,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Garage fondateur (tenant n°1)
+INSERT IGNORE INTO garages_sms (id, nom, code, ville, plan, abonnement_fin)
+VALUES (1, 'SERENO AUTO Yaoundé', 'SAUT-YDE', 'Yaoundé', 'enterprise', '2099-12-31');
+
+-- ------------------------------------------------------------
 -- TABLE : utilisateurs (auth + rôles)
+-- garage_id NULL = super-admin plateforme (multi-garages)
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS utilisateurs (
     id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -17,10 +45,12 @@ CREATE TABLE IF NOT EXISTS utilisateurs (
     telephone     VARCHAR(20),
     mot_de_passe  VARCHAR(255) NOT NULL,             -- bcrypt hash
     role          ENUM('admin','commercial','technicien','client') NOT NULL DEFAULT 'client',
+    garage_id     INT UNSIGNED,                      -- NULL = super-admin plateforme
     actif         TINYINT(1) NOT NULL DEFAULT 1,
     photo         VARCHAR(255),
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (garage_id) REFERENCES garages_sms(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ------------------------------------------------------------
@@ -40,6 +70,7 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS clients (
     id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    garage_id       INT UNSIGNED NOT NULL DEFAULT 1, -- tenant : garage propriétaire
     utilisateur_id  INT UNSIGNED,                    -- si le client a un compte app
     nom             VARCHAR(150) NOT NULL,
     telephone       VARCHAR(20) NOT NULL,
@@ -52,8 +83,10 @@ CREATE TABLE IF NOT EXISTS clients (
     created_by      INT UNSIGNED,                    -- commercial qui a créé
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (garage_id) REFERENCES garages_sms(id),
     FOREIGN KEY (utilisateur_id) REFERENCES utilisateurs(id) ON DELETE SET NULL,
-    FOREIGN KEY (created_by) REFERENCES utilisateurs(id) ON DELETE SET NULL
+    FOREIGN KEY (created_by) REFERENCES utilisateurs(id) ON DELETE SET NULL,
+    INDEX idx_client_garage (garage_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ------------------------------------------------------------
@@ -252,6 +285,7 @@ CREATE TABLE IF NOT EXISTS rendez_vous (
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS notifications (
     id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    garage_id       INT UNSIGNED NOT NULL DEFAULT 1, -- tenant
     destinataire_id INT UNSIGNED,                    -- utilisateur interne (nullable)
     client_id       INT UNSIGNED,                    -- ou client final (nullable)
     type            ENUM('vidange','filtre','pneus','batterie','assurance',
@@ -266,10 +300,12 @@ CREATE TABLE IF NOT EXISTS notifications (
     -- clé de déduplication des rappels automatiques (ex: csa_expiration-12-J30)
     cle_unique      VARCHAR(120) UNIQUE,
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (garage_id)       REFERENCES garages_sms(id),
     FOREIGN KEY (destinataire_id) REFERENCES utilisateurs(id) ON DELETE CASCADE,
     FOREIGN KEY (client_id)       REFERENCES clients(id) ON DELETE CASCADE,
     INDEX idx_notif_envoye (envoye),
-    INDEX idx_notif_lu (lu)
+    INDEX idx_notif_lu (lu),
+    INDEX idx_notif_garage (garage_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ------------------------------------------------------------

@@ -30,11 +30,23 @@ class NotificationService {
             if ($test->fetch()) return null; // déjà créée
         }
 
+        // Tenant : garage du client, sinon du destinataire, sinon garage fondateur
+        $garageId = 1;
+        if ($clientId) {
+            $g = $db->prepare('SELECT garage_id FROM clients WHERE id = ?');
+            $g->execute([$clientId]);
+            $garageId = (int)($g->fetchColumn() ?: 1);
+        } elseif ($destinataireId) {
+            $g = $db->prepare('SELECT garage_id FROM utilisateurs WHERE id = ?');
+            $g->execute([$destinataireId]);
+            $garageId = (int)($g->fetchColumn() ?: 1);
+        }
+
         $stmt = $db->prepare(
-            'INSERT INTO notifications (destinataire_id, client_id, type, titre, message, canal, cle_unique)
-             VALUES (?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO notifications (garage_id, destinataire_id, client_id, type, titre, message, canal, cle_unique)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$destinataireId, $clientId, $type, $titre, $message, $canal, $cleUnique]);
+        $stmt->execute([$garageId, $destinataireId, $clientId, $type, $titre, $message, $canal, $cleUnique]);
         return (int)$db->lastInsertId();
     }
 

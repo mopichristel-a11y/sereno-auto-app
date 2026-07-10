@@ -14,12 +14,17 @@ class InterventionController extends BaseController {
     // GET /interventions?statut=&vehicule_id=&technicien_id=&page=
     // ----------------------------------------------------------
     public static function index(): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $db = Database::connect();
         [$page, $limite, $offset] = self::pagination();
 
         $where  = [];
         $params = [];
+
+        if (($garage = self::garageDe($user)) !== null) {
+            $where[] = 'c.garage_id = :garage';
+            $params[':garage'] = $garage;
+        }
         if (!empty($_GET['statut'])) {
             $where[] = 'i.statut = :statut';
             $params[':statut'] = $_GET['statut'];
@@ -34,7 +39,12 @@ class InterventionController extends BaseController {
         }
         $sqlWhere = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 
-        $total = $db->prepare("SELECT COUNT(*) FROM interventions i $sqlWhere");
+        $total = $db->prepare(
+            "SELECT COUNT(*) FROM interventions i
+             JOIN vehicules v ON v.id = i.vehicule_id
+             JOIN clients c   ON c.id = v.client_id
+             $sqlWhere"
+        );
         $total->execute($params);
         $nbTotal = (int)$total->fetchColumn();
 
@@ -88,6 +98,10 @@ class InterventionController extends BaseController {
         $stmt->execute([$id]);
         $intervention = $stmt->fetch();
         if (!$intervention) self::erreur(404, "Intervention introuvable (id $id).");
+        self::verifierGarage(
+            self::garageDe(AuthMiddleware::utilisateurCourant()),
+            self::garageDuVehicule($db, (int)$intervention['vehicule_id'])
+        );
 
         $intervention['photos']       = self::decoderJson($intervention['photos']);
         $intervention['devis_lignes'] = self::decoderJson($intervention['devis_lignes']);
@@ -108,12 +122,13 @@ class InterventionController extends BaseController {
     // Body: { vehicule_id, devis_id?, technicien_id?, date_debut? }
     // ----------------------------------------------------------
     public static function store(): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $data = self::bodyJson();
         self::requis($data, ['vehicule_id']);
 
         $db = Database::connect();
         self::trouverOu404($db, 'vehicules', (int)$data['vehicule_id'], 'Véhicule');
+        self::verifierGarage(self::garageDe($user), self::garageDuVehicule($db, (int)$data['vehicule_id']));
 
         if (!empty($data['devis_id'])) {
             self::trouverOu404($db, 'devis', (int)$data['devis_id'], 'Devis');
@@ -145,11 +160,12 @@ class InterventionController extends BaseController {
     // PUT /interventions/{id} — réaffecter technicien / dates
     // ----------------------------------------------------------
     public static function update(int $id): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $data = self::bodyJson();
         $db   = Database::connect();
 
         $intervention = self::trouverOu404($db, 'interventions', $id, 'Intervention');
+        self::verifierGarage(self::garageDe($user), self::garageDuVehicule($db, (int)$intervention['vehicule_id']));
         if (in_array($intervention['statut'], ['terminé', 'annulé'])) {
             self::erreur(409, "Intervention {$intervention['statut']} : modification impossible.");
         }
@@ -182,6 +198,7 @@ class InterventionController extends BaseController {
         $db   = Database::connect();
 
         $intervention = self::trouverOu404($db, 'interventions', $id, 'Intervention');
+        self::verifierGarage(self::garageDe($user), self::garageDuVehicule($db, (int)$intervention['vehicule_id']));
         if ($intervention['statut'] !== 'planifié') {
             self::erreur(409, "Seule une intervention planifiée peut démarrer (statut actuel : {$intervention['statut']}).");
         }
@@ -203,12 +220,13 @@ class InterventionController extends BaseController {
     // → statut terminé + entrées carnet + prochaines échéances
     // ----------------------------------------------------------
     public static function cloturer(int $id): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $data = self::bodyJson();
         self::requis($data, ['rapport']);
 
         $db = Database::connect();
         $intervention = self::trouverOu404($db, 'interventions', $id, 'Intervention');
+        self::verifierGarage(self::garageDe($user), self::garageDuVehicule($db, (int)$intervention['vehicule_id']));
         if (!in_array($intervention['statut'], ['planifié', 'en_cours'])) {
             self::erreur(409, "Intervention déjà {$intervention['statut']}.");
         }
@@ -285,11 +303,12 @@ class InterventionController extends BaseController {
     // POST /interventions/{id}/annuler
     // ----------------------------------------------------------
     public static function annuler(int $id): void {
-        AuthMiddleware::adminOuCommercial();
+        $user = AuthMiddleware::adminOuCommercial();
         $data = self::bodyJson();
         $db   = Database::connect();
 
         $intervention = self::trouverOu404($db, 'interventions', $id, 'Intervention');
+        self::verifierGarage(self::garageDe($user), self::garageDuVehicule($db, (int)$intervention['vehicule_id']));
         if ($intervention['statut'] === 'terminé') {
             self::erreur(409, 'Intervention terminée : annulation impossible.');
         }

@@ -16,12 +16,18 @@ class NotificationController extends BaseController {
     // GET /notifications?lu=0&type=&page=
     // ----------------------------------------------------------
     public static function index(): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $db = Database::connect();
         [$page, $limite, $offset] = self::pagination();
 
         $where  = [];
         $params = [];
+
+        $garage = self::garageDe($user);
+        if ($garage !== null) {
+            $where[] = 'n.garage_id = :garage';
+            $params[':garage'] = $garage;
+        }
         if (isset($_GET['lu']) && $_GET['lu'] !== '') {
             $where[] = 'n.lu = :lu';
             $params[':lu'] = (int)$_GET['lu'];
@@ -36,7 +42,10 @@ class NotificationController extends BaseController {
         $total->execute($params);
         $nbTotal = (int)$total->fetchColumn();
 
-        $nonLues = (int)$db->query('SELECT COUNT(*) FROM notifications WHERE lu = 0')->fetchColumn();
+        $nonLues = (int)$db->query(
+            'SELECT COUNT(*) FROM notifications WHERE lu = 0'
+            . ($garage !== null ? " AND garage_id = $garage" : '')
+        )->fetchColumn();
 
         $stmt = $db->prepare(
             "SELECT n.*, c.nom AS client_nom, CONCAT(u.prenom, ' ', u.nom) AS destinataire_nom
@@ -64,7 +73,7 @@ class NotificationController extends BaseController {
     //         canal?="app", envoyer_maintenant?=false }
     // ----------------------------------------------------------
     public static function store(): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $data = self::bodyJson();
         self::requis($data, ['type', 'titre', 'message']);
 
@@ -77,7 +86,8 @@ class NotificationController extends BaseController {
 
         $db = Database::connect();
         if (!empty($data['client_id'])) {
-            self::trouverOu404($db, 'clients', (int)$data['client_id'], 'Client');
+            $client = self::trouverOu404($db, 'clients', (int)$data['client_id'], 'Client');
+            self::verifierGarage(self::garageDe($user), $client['garage_id']);
         }
         if (!empty($data['destinataire_id'])) {
             self::trouverOu404($db, 'utilisateurs', (int)$data['destinataire_id'], 'Utilisateur');
@@ -109,9 +119,10 @@ class NotificationController extends BaseController {
     // POST /notifications/{id}/lu
     // ----------------------------------------------------------
     public static function marquerLu(int $id): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $db = Database::connect();
-        self::trouverOu404($db, 'notifications', $id, 'Notification');
+        $notification = self::trouverOu404($db, 'notifications', $id, 'Notification');
+        self::verifierGarage(self::garageDe($user), $notification['garage_id']);
         $db->prepare('UPDATE notifications SET lu = 1 WHERE id = ?')->execute([$id]);
         self::succes([], 'Notification marquée lue.');
     }
@@ -120,9 +131,11 @@ class NotificationController extends BaseController {
     // POST /notifications/tout-lu
     // ----------------------------------------------------------
     public static function toutLu(): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $db = Database::connect();
-        $db->exec('UPDATE notifications SET lu = 1 WHERE lu = 0');
+        $garage = self::garageDe($user);
+        $db->exec('UPDATE notifications SET lu = 1 WHERE lu = 0'
+                  . ($garage !== null ? " AND garage_id = $garage" : ''));
         self::succes([], 'Toutes les notifications sont marquées lues.');
     }
 
@@ -130,9 +143,10 @@ class NotificationController extends BaseController {
     // POST /notifications/{id}/envoyer — renvoi immédiat
     // ----------------------------------------------------------
     public static function envoyer(int $id): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $db = Database::connect();
         $notification = self::trouverOu404($db, 'notifications', $id, 'Notification');
+        self::verifierGarage(self::garageDe($user), $notification['garage_id']);
 
         // Repasser en file puis traiter
         $db->prepare('UPDATE notifications SET envoye = 0 WHERE id = ?')->execute([$id]);

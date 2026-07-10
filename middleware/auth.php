@@ -26,7 +26,14 @@ class AuthMiddleware {
 
         // Vérifier que l'utilisateur existe encore et est actif
         $db   = Database::connect();
-        $stmt = $db->prepare('SELECT id, nom, prenom, email, role, actif FROM utilisateurs WHERE id = ?');
+        $stmt = $db->prepare(
+            'SELECT u.id, u.nom, u.prenom, u.email, u.role, u.actif, u.garage_id,
+                    g.nom AS garage_nom, g.plan AS garage_plan,
+                    g.actif AS garage_actif, g.abonnement_fin
+             FROM utilisateurs u
+             LEFT JOIN garages_sms g ON g.id = u.garage_id
+             WHERE u.id = ?'
+        );
         $stmt->execute([$payload['id']]);
         $user = $stmt->fetch();
 
@@ -34,7 +41,36 @@ class AuthMiddleware {
             self::erreur(401, 'Compte introuvable ou désactivé.');
         }
 
+        // ---- Contrôle d'abonnement SaaS du garage (7 jours de grâce) ----
+        // Les clients finaux gardent l'accès à leur espace.
+        if ($user['garage_id'] !== null && $user['role'] !== 'client') {
+            if (!$user['garage_actif']) {
+                self::erreur(402, 'Le compte de votre garage est suspendu. Contactez SERENO SMS.');
+            }
+            if ($user['abonnement_fin'] !== null
+                && strtotime($user['abonnement_fin'] . ' +7 days') < strtotime(date('Y-m-d'))) {
+                self::erreur(402, sprintf(
+                    'Abonnement %s expiré le %s. Renouvelez pour retrouver l\'accès.',
+                    $user['garage_plan'],
+                    date('d/m/Y', strtotime($user['abonnement_fin']))
+                ));
+            }
+        }
+
         self::$utilisateurCourant = $user;
+        return $user;
+    }
+
+    // ---- Super-admin plateforme (garage_id NULL) ----
+    public static function estSuperAdmin(array $user): bool {
+        return $user['role'] === 'admin' && $user['garage_id'] === null;
+    }
+
+    public static function superAdminSeulement(): array {
+        $user = self::authentifier();
+        if (!self::estSuperAdmin($user)) {
+            self::erreur(403, 'Réservé à l\'administration de la plateforme SERENO SMS.');
+        }
         return $user;
     }
 

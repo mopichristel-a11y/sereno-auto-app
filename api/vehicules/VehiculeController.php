@@ -50,12 +50,17 @@ class VehiculeController extends BaseController {
     // GET /vehicules?client_id=&recherche=&page=&limite=
     // ----------------------------------------------------------
     public static function index(): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $db = Database::connect();
         [$page, $limite, $offset] = self::pagination();
 
         $where  = [];
         $params = [];
+
+        if (($garage = self::garageDe($user)) !== null) {
+            $where[] = 'c.garage_id = :garage';
+            $params[':garage'] = $garage;
+        }
 
         if (!empty($_GET['client_id'])) {
             $where[] = 'v.client_id = :cid';
@@ -101,17 +106,18 @@ class VehiculeController extends BaseController {
     // GET /vehicules/{id}
     // ----------------------------------------------------------
     public static function show(int $id): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $db = Database::connect();
 
         $stmt = $db->prepare(
-            'SELECT v.*, c.nom AS client_nom, c.telephone AS client_telephone
+            'SELECT v.*, c.nom AS client_nom, c.telephone AS client_telephone, c.garage_id
              FROM vehicules v JOIN clients c ON c.id = v.client_id
              WHERE v.id = ?'
         );
         $stmt->execute([$id]);
         $vehicule = $stmt->fetch();
         if (!$vehicule) self::erreur(404, "Véhicule introuvable (id $id).");
+        self::verifierGarage(self::garageDe($user), $vehicule['garage_id']);
 
         $contrat = $db->prepare(
             "SELECT ct.*, f.nom AS formule FROM contrats_csa ct
@@ -138,12 +144,28 @@ class VehiculeController extends BaseController {
     // POST /vehicules
     // ----------------------------------------------------------
     public static function store(): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $data = self::bodyJson();
         self::requis($data, ['client_id', 'marque', 'modele']);
 
         $db = Database::connect();
-        self::trouverOu404($db, 'clients', (int)$data['client_id'], 'Client');
+        $client = self::trouverOu404($db, 'clients', (int)$data['client_id'], 'Client');
+        self::verifierGarage(self::garageDe($user), $client['garage_id']);
+
+        // Quota véhicules du plan SaaS du garage
+        $garageId = (int)$client['garage_id'];
+        $plan = $db->prepare('SELECT plan FROM garages_sms WHERE id = ?');
+        $plan->execute([$garageId]);
+        $quota = self::PLANS_SAAS[$plan->fetchColumn() ?: 'starter']['quota_vehicules'];
+        if ($quota !== null) {
+            $compte = $db->prepare(
+                'SELECT COUNT(*) FROM vehicules v JOIN clients c ON c.id = v.client_id WHERE c.garage_id = ?'
+            );
+            $compte->execute([$garageId]);
+            if ((int)$compte->fetchColumn() >= $quota) {
+                self::erreur(402, "Quota du plan atteint ($quota véhicules). Passez au plan supérieur pour continuer.");
+            }
+        }
 
         $stmt = $db->prepare(
             'INSERT INTO vehicules (client_id, marque, modele, annee, immatriculation, vin,
@@ -172,11 +194,12 @@ class VehiculeController extends BaseController {
     // PUT /vehicules/{id}
     // ----------------------------------------------------------
     public static function update(int $id): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $data = self::bodyJson();
         $db   = Database::connect();
 
         $vehicule = self::trouverOu404($db, 'vehicules', $id, 'Véhicule');
+        self::verifierGarage(self::garageDe($user), self::garageDuVehicule($db, $id));
 
         // Le kilométrage ne doit jamais reculer
         if (isset($data['kilometrage']) && (int)$data['kilometrage'] < (int)$vehicule['kilometrage']) {
@@ -209,9 +232,10 @@ class VehiculeController extends BaseController {
     // DELETE /vehicules/{id}  (admin)
     // ----------------------------------------------------------
     public static function destroy(int $id): void {
-        AuthMiddleware::adminSeulement();
+        $user = AuthMiddleware::adminSeulement();
         $db = Database::connect();
         self::trouverOu404($db, 'vehicules', $id, 'Véhicule');
+        self::verifierGarage(self::garageDe($user), self::garageDuVehicule($db, $id));
 
         $actifs = $db->prepare("SELECT COUNT(*) FROM contrats_csa WHERE vehicule_id = ? AND statut = 'actif'");
         $actifs->execute([$id]);
@@ -228,9 +252,10 @@ class VehiculeController extends BaseController {
     // Moteur de rappels : croise carnet d'entretien + intervalles
     // ----------------------------------------------------------
     public static function rappels(int $id): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $db = Database::connect();
         $vehicule = self::trouverOu404($db, 'vehicules', $id, 'Véhicule');
+        self::verifierGarage(self::garageDe($user), self::garageDuVehicule($db, $id));
 
         self::succes([
             'vehicule' => ['id' => $id, 'kilometrage' => (int)$vehicule['kilometrage']],

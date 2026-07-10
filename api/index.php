@@ -142,6 +142,14 @@ $routes = [
     ['POST', '#^/paiements/mobile/callback/orange$#',  'paiements/MobileMoneyController.php', ['MobileMoneyController', 'callbackOrange']],
     ['POST', '#^/paiements/mobile/callback/mtn$#',     'paiements/MobileMoneyController.php', ['MobileMoneyController', 'callbackMtn']],
 
+    // ---------------- CONSOLE SAAS (super-admin) ----------------
+    ['GET',  '#^/saas/plans$#',                  'saas/SaasController.php',        ['SaasController', 'plans']],
+    ['GET',  '#^/saas/garages$#',                'saas/SaasController.php',        ['SaasController', 'garages']],
+    ['POST', '#^/saas/garages$#',                'saas/SaasController.php',        ['SaasController', 'creerGarage']],
+    ['PUT',  '#^/saas/garages/(\d+)$#',          'saas/SaasController.php',        ['SaasController', 'modifierGarage']],
+    ['POST', '#^/saas/garages/(\d+)/renouveler$#', 'saas/SaasController.php',      ['SaasController', 'renouveler']],
+    ['GET',  '#^/saas/stats$#',                  'saas/SaasController.php',        ['SaasController', 'stats']],
+
     // ---------------- GARAGES PARTENAIRES ----------------
     ['GET',    '#^/garages$#',                   'garages/GarageController.php',   ['GarageController', 'index']],
     ['POST',   '#^/garages$#',                   'garages/GarageController.php',   ['GarageController', 'store']],
@@ -171,7 +179,7 @@ if ($uri === '/sante' && $method === 'GET') {
     echo json_encode([
         'succes'  => true,
         'app'     => APP_NAME,
-        'version' => '1.1.0',
+        'version' => '2.0.0',
         'statut'  => 'opérationnel',
         'heure'   => date('Y-m-d H:i:s'),
     ]);

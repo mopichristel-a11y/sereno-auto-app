@@ -14,11 +14,16 @@ class RdvController extends BaseController {
     // GET /rdv?date=2026-07-08 | ?date=today | ?a_venir=1
     // ----------------------------------------------------------
     public static function index(): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $db = Database::connect();
 
         $where  = [];
         $params = [];
+
+        if (($garage = self::garageDe($user)) !== null) {
+            $where[] = 'c.garage_id = :garage';
+            $params[':garage'] = $garage;
+        }
 
         if (!empty($_GET['date'])) {
             $date = $_GET['date'] === 'today' ? date('Y-m-d') : $_GET['date'];
@@ -55,7 +60,7 @@ class RdvController extends BaseController {
     // Body: { client_id, vehicule_id, date_rdv, motif?, statut?, notes? }
     // ----------------------------------------------------------
     public static function store(): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $data = self::bodyJson();
         self::requis($data, ['client_id', 'vehicule_id', 'date_rdv']);
 
@@ -65,7 +70,8 @@ class RdvController extends BaseController {
         if (!in_array($statut, self::STATUTS)) self::erreur(400, 'Statut invalide.');
 
         $db = Database::connect();
-        self::trouverOu404($db, 'clients', (int)$data['client_id'], 'Client');
+        $client = self::trouverOu404($db, 'clients', (int)$data['client_id'], 'Client');
+        self::verifierGarage(self::garageDe($user), $client['garage_id']);
         $vehicule = self::trouverOu404($db, 'vehicules', (int)$data['vehicule_id'], 'Véhicule');
         if ((int)$vehicule['client_id'] !== (int)$data['client_id']) {
             self::erreur(400, 'Ce véhicule n\'appartient pas à ce client.');
@@ -90,11 +96,12 @@ class RdvController extends BaseController {
     // PUT /rdv/{id}
     // ----------------------------------------------------------
     public static function update(int $id): void {
-        AuthMiddleware::equipeInterne();
+        $user = AuthMiddleware::equipeInterne();
         $data = self::bodyJson();
         $db   = Database::connect();
 
-        self::trouverOu404($db, 'rendez_vous', $id, 'Rendez-vous');
+        $rdv = self::trouverOu404($db, 'rendez_vous', $id, 'Rendez-vous');
+        self::verifierGarage(self::garageDe($user), self::garageDuClient($db, (int)$rdv['client_id']));
 
         $set    = [];
         $params = [];
@@ -118,9 +125,10 @@ class RdvController extends BaseController {
     // DELETE /rdv/{id}
     // ----------------------------------------------------------
     public static function destroy(int $id): void {
-        AuthMiddleware::adminOuCommercial();
+        $user = AuthMiddleware::adminOuCommercial();
         $db = Database::connect();
-        self::trouverOu404($db, 'rendez_vous', $id, 'Rendez-vous');
+        $rdv = self::trouverOu404($db, 'rendez_vous', $id, 'Rendez-vous');
+        self::verifierGarage(self::garageDe($user), self::garageDuClient($db, (int)$rdv['client_id']));
         $db->prepare('DELETE FROM rendez_vous WHERE id = ?')->execute([$id]);
         self::succes([], 'Rendez-vous supprimé.');
     }
