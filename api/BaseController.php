@@ -65,6 +65,21 @@ abstract class BaseController {
         return $ref;
     }
 
+    // ---- Référence datée du jour : PREFIX-20260710-001 ----
+    protected static function genererReferenceJour(PDO $db, string $table, string $prefixe): string {
+        $prefixeJour = $prefixe . '-' . date('Ymd');
+        $stmt = $db->prepare("SELECT COUNT(*) FROM `$table` WHERE reference LIKE ?");
+        $stmt->execute(["$prefixeJour-%"]);
+        $numero = (int)$stmt->fetchColumn() + 1;
+        do {
+            $ref  = sprintf('%s-%03d', $prefixeJour, $numero);
+            $test = $db->prepare("SELECT id FROM `$table` WHERE reference = ?");
+            $test->execute([$ref]);
+            $numero++;
+        } while ($test->fetch());
+        return $ref;
+    }
+
     // ---- Vérifier qu'une ligne existe, sinon 404 ----
     protected static function trouverOu404(PDO $db, string $table, int $id, string $nom = 'Ressource'): array {
         $stmt = $db->prepare("SELECT * FROM `$table` WHERE id = ?");

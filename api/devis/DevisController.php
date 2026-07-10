@@ -103,7 +103,7 @@ class DevisController extends BaseController {
         $mainOeuvre = round($sousTotal * $moPct / 100, 2);
         $total      = round($sousTotal + $mainOeuvre, 2);
 
-        $reference = self::genererReference($db, 'devis', 'DEVIS-SAUT-' . date('Ymd'));
+        $reference = self::genererReferenceJour($db, 'devis', 'DEVIS-SAUT');
 
         $db->prepare(
             'INSERT INTO devis (reference, diagnostic_id, client_id, vehicule_id, lignes,

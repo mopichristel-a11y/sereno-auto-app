@@ -17,11 +17,12 @@ $db->beginTransaction();
 
 // ---- Équipe ----
 $hash = password_hash('Sereno@2026', PASSWORD_BCRYPT, ['cost' => 12]);
-$db->prepare("INSERT INTO utilisateurs (nom, prenom, email, mot_de_passe, telephone, role) VALUES
-    ('Kamdem', 'Jean-Baptiste', 'jb@sereno-auto.cm', ?, '+237 690 000 001', 'commercial'),
-    ('Mendomo', 'Flore', 'flore@sereno-auto.cm', ?, '+237 690 000 002', 'commercial'),
-    ('Essomba', 'Jean-Paul', 'jeanpaul@sereno-auto.cm', ?, '+237 690 000 003', 'technicien'),
-    ('Nkoulou', 'Rodrigue', 'rodrigue@sereno-auto.cm', ?, '+237 690 000 004', 'technicien')")
+// Équipe rattachée au garage fondateur (tenant n°1)
+$db->prepare("INSERT INTO utilisateurs (nom, prenom, email, mot_de_passe, telephone, role, garage_id) VALUES
+    ('Kamdem', 'Jean-Baptiste', 'jb@sereno-auto.cm', ?, '+237 690 000 001', 'commercial', 1),
+    ('Mendomo', 'Flore', 'flore@sereno-auto.cm', ?, '+237 690 000 002', 'commercial', 1),
+    ('Essomba', 'Jean-Paul', 'jeanpaul@sereno-auto.cm', ?, '+237 690 000 003', 'technicien', 1),
+    ('Nkoulou', 'Rodrigue', 'rodrigue@sereno-auto.cm', ?, '+237 690 000 004', 'technicien', 1)")
    ->execute([$hash, $hash, $hash, $hash]);
 
 $commercial1 = (int)$db->query("SELECT id FROM utilisateurs WHERE email = 'jb@sereno-auto.cm'")->fetchColumn();
